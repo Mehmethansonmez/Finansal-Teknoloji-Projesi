@@ -25,7 +25,7 @@ if not hazir_modeller:
 else:
     sekme1, sekme2 = st.tabs(["📊 Tüm Piyasa Radarı (1 Haftalık Analiz)", "🎯 Bireysel Hisse Analizi"])
 
-    # ---------------- SEKME 1: TOPLU TARAMA (5 GÜNLÜK BİRLEŞTİRİLMİŞ GÖRÜNÜM) ----------------
+    # ---------------- SEKME 1: TOPLU TARAMA (BUTON EKLENDİ) ----------------
     with sekme1:
         st.subheader(f"Toplu Hisse Tarayıcı ({len(hazir_modeller)} Yapay Zeka Modeli)")
         st.markdown("Arka planda eğitilen modeller kullanılarak **5 işlem gününün (1 Hafta)** fiyat projeksiyonu ve zincirleme yüzdelik değişimleri hesaplanır.")
@@ -83,12 +83,12 @@ else:
                         total_degisim = ((gun5_fiyat - suanki_fiyat) / suanki_fiyat) * 100
                         
                         sonuclar.append({
-                            "Hisse": hisse, "Mevcut": suanki_fiyat,
-                            "1. Gün": gun1_fiyat, "1. Gün %": gun1_degisim,
-                            "2. Gün": gun2_fiyat, "2. Gün %": gun2_degisim,
-                            "3. Gün": gun3_fiyat, "3. Gün %": gun3_degisim,
-                            "4. Gün": gun4_fiyat, "4. Gün %": gun4_degisim,
-                            "5. Gün": gun5_fiyat, "5. Gün %": gun5_degisim,
+                            "Hisse Kodu": hisse, "Mevcut Fiyat": round(suanki_fiyat, 2),
+                            "1. Gün Fiyat": round(gun1_fiyat, 2), "1. Gün %": round(gun1_degisim, 2),
+                            "2. Gün Fiyat": round(gun2_fiyat, 2), "2. Gün %": round(gun2_degisim, 2),
+                            "3. Gün Fiyat": round(gun3_fiyat, 2), "3. Gün %": round(gun3_degisim, 2),
+                            "4. Gün Fiyat": round(gun4_fiyat, 2), "4. Gün %": round(gun4_degisim, 2),
+                            "5. Gün Fiyat": round(gun5_fiyat, 2), "5. Gün %": round(gun5_degisim, 2),
                             "Siralama_Skoru": total_degisim
                         })
                         
@@ -105,7 +105,21 @@ else:
                 df_sonuc = pd.DataFrame(sonuclar)
                 df_sonuc = df_sonuc.sort_values(by="Siralama_Skoru", ascending=False).reset_index(drop=True)
                 
-                # Sütunları birleştirdiğimiz şık ve kompakt tablo tasarımı
+                # --- İNDİRME BUTONU BURADA ---
+                # Türkçe karakterlerin Excel'de bozulmaması için 'utf-8-sig' kullanıyoruz
+                csv_data = df_sonuc.drop(columns=['Siralama_Skoru']).to_csv(index=False).encode('utf-8-sig')
+                
+                st.markdown("<br>", unsafe_allow_html=True) # Araya biraz boşluk
+                st.download_button(
+                    label="📥 Tüm Sonuçları Excel / CSV Olarak İndir",
+                    data=csv_data,
+                    file_name=f"BIST100_Haftalik_Radar_{datetime.date.today().strftime('%Y-%m-%d')}.csv",
+                    mime="text/csv",
+                    help="Bu dosyayı indirip doğrudan Excel'de açabilirsiniz."
+                )
+                st.markdown("---")
+                # ------------------------------
+
                 md_tablo = "| Hisse | Mevcut Fiyat | 1. Gün | 2. Gün | 3. Gün | 4. Gün | 5. Gün |\n"
                 md_tablo += "|:---|:---:|:---:|:---:|:---:|:---:|:---:|\n"
                 
@@ -117,13 +131,13 @@ else:
                     ok5 = "🟢" if row['5. Gün %'] > 0 else "🔴" if row['5. Gün %'] < 0 else "⚪"
                     
                     md_tablo += (
-                        f"| **{row['Hisse']}** "
-                        f"| {row['Mevcut']:.2f} ₺ "
-                        f"| {ok1} %{row['1. Gün %']:.2f} ➔ {row['1. Gün']:.2f} ₺ "
-                        f"| {ok2} %{row['2. Gün %']:.2f} ➔ {row['2. Gün']:.2f} ₺ "
-                        f"| {ok3} %{row['3. Gün %']:.2f} ➔ {row['3. Gün']:.2f} ₺ "
-                        f"| {ok4} %{row['4. Gün %']:.2f} ➔ {row['4. Gün']:.2f} ₺ "
-                        f"| {ok5} %{row['5. Gün %']:.2f} ➔ {row['5. Gün']:.2f} ₺ |\n"
+                        f"| **{row['Hisse Kodu']}** "
+                        f"| {row['Mevcut Fiyat']:.2f} ₺ "
+                        f"| {ok1} %{row['1. Gün %']:.2f} ➔ {row['1. Gün Fiyat']:.2f} ₺ "
+                        f"| {ok2} %{row['2. Gün %']:.2f} ➔ {row['2. Gün Fiyat']:.2f} ₺ "
+                        f"| {ok3} %{row['3. Gün %']:.2f} ➔ {row['3. Gün Fiyat']:.2f} ₺ "
+                        f"| {ok4} %{row['4. Gün %']:.2f} ➔ {row['4. Gün Fiyat']:.2f} ₺ "
+                        f"| {ok5} %{row['5. Gün %']:.2f} ➔ {row['5. Gün Fiyat']:.2f} ₺ |\n"
                     )
                 
                 st.markdown(md_tablo)
