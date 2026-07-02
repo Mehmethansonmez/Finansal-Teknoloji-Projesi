@@ -23,12 +23,12 @@ hazir_modeller.sort()
 if not hazir_modeller:
     st.warning("Lütfen önce arka planda eğitim kodunu çalıştırın.")
 else:
-    sekme1, sekme2 = st.tabs(["📊 Tüm Piyasa Radarı (Gün Gün Analiz)", "🎯 Bireysel Hisse Analizi"])
+    sekme1, sekme2 = st.tabs(["📊 Tüm Piyasa Radarı (1 Haftalık Analiz)", "🎯 Bireysel Hisse Analizi"])
 
-    # ---------------- SEKME 1: TOPLU TARAMA ----------------
+    # ---------------- SEKME 1: TOPLU TARAMA (5 GÜNLÜK) ----------------
     with sekme1:
         st.subheader(f"Toplu Hisse Tarayıcı ({len(hazir_modeller)} Yapay Zeka Modeli)")
-        st.markdown("Arka planda eğitilen modeller kullanılarak ilk **3 günün** fiyat projeksiyonu ve **bir önceki güne göre** zincirleme yüzdelik değişimleri hesaplanır.")
+        st.markdown("Arka planda eğitilen modeller kullanılarak **5 işlem gününün (1 Hafta)** fiyat projeksiyonu ve **bir önceki güne göre** zincirleme yüzdelik değişimleri hesaplanır.")
         
         if st.button("Piyasayı Tarat (Tahminleri Hesapla)"):
             progress_bar = st.progress(0)
@@ -68,29 +68,32 @@ else:
                             limitli_tahmin_tl.append(kesilmis)
                             referans_fiyat = kesilmis 
                         
-                        # --- YENİ ZİNCİRLEME MATEMATİK ---
+                        # --- 5 GÜNLÜK ZİNCİRLEME MATEMATİK ---
                         suanki_fiyat = fiyatlar[-1][0]
-                        gun1_fiyat = limitli_tahmin_tl[0] # Yarın
-                        gun2_fiyat = limitli_tahmin_tl[1] # Sonraki Gün
-                        gun3_fiyat = limitli_tahmin_tl[2] # 3. Gün
+                        gun1_fiyat = limitli_tahmin_tl[0] 
+                        gun2_fiyat = limitli_tahmin_tl[1] 
+                        gun3_fiyat = limitli_tahmin_tl[2] 
+                        gun4_fiyat = limitli_tahmin_tl[3] 
+                        gun5_fiyat = limitli_tahmin_tl[4] 
                         
                         # Her günün değişimi BİR ÖNCEKİ GÜNE göre hesaplanıyor
                         gun1_degisim = ((gun1_fiyat - suanki_fiyat) / suanki_fiyat) * 100
                         gun2_degisim = ((gun2_fiyat - gun1_fiyat) / gun1_fiyat) * 100
                         gun3_degisim = ((gun3_fiyat - gun2_fiyat) / gun2_fiyat) * 100
+                        gun4_degisim = ((gun4_fiyat - gun3_fiyat) / gun3_fiyat) * 100
+                        gun5_degisim = ((gun5_fiyat - gun4_fiyat) / gun4_fiyat) * 100
                         
-                        # Toplam sıralama için 3 günlük bileşik getiri/götürü (Sadece listeyi sıralamak için kullanacağız)
-                        total_degisim = ((gun3_fiyat - suanki_fiyat) / suanki_fiyat) * 100
+                        # Toplam sıralama için 5 günlük bileşik getiri
+                        total_degisim = ((gun5_fiyat - suanki_fiyat) / suanki_fiyat) * 100
                         
                         sonuclar.append({
                             "Hisse": hisse,
                             "Mevcut": suanki_fiyat,
-                            "1. Gün": gun1_fiyat,
-                            "1. Gün %": gun1_degisim,
-                            "2. Gün": gun2_fiyat,
-                            "2. Gün %": gun2_degisim,
-                            "3. Gün": gun3_fiyat,
-                            "3. Gün %": gun3_degisim,
+                            "1. Gün": gun1_fiyat, "1. Gün %": gun1_degisim,
+                            "2. Gün": gun2_fiyat, "2. Gün %": gun2_degisim,
+                            "3. Gün": gun3_fiyat, "3. Gün %": gun3_degisim,
+                            "4. Gün": gun4_fiyat, "4. Gün %": gun4_degisim,
+                            "5. Gün": gun5_fiyat, "5. Gün %": gun5_degisim,
                             "Siralama_Skoru": total_degisim
                         })
                         
@@ -106,30 +109,33 @@ else:
             if sonuclar:
                 df_sonuc = pd.DataFrame(sonuclar)
                 
-                # Tabloyu en kârlı olandan en zararlı olana doğru mantıklı bir şekilde sıralıyoruz
+                # Tabloyu haftanın sonunda en kârlı olandan en zararlı olana doğru sıralıyoruz
                 df_sonuc = df_sonuc.sort_values(by="Siralama_Skoru", ascending=False).reset_index(drop=True)
                 
-                # Devasa 3 Günlük Analiz Tablosu (Markdown)
-                md_tablo = "| Hisse | Mevcut | 1. Gün (Yarın) | 1. Gün İvmesi | 2. Gün | 2. Gün İvmesi | 3. Gün | 3. Gün İvmesi |\n"
-                md_tablo += "|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|\n"
+                # 5 Günlük Analiz Tablosu (Geniş ekranlar için optimize edildi)
+                md_tablo = "| Hisse | Mevcut | 1. Gün | 1.G % | 2. Gün | 2.G % | 3. Gün | 3.G % | 4. Gün | 4.G % | 5. Gün | 5.G % |\n"
+                md_tablo += "|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|\n"
                 
                 for index, row in df_sonuc.iterrows():
-                    # Her gün için dinamik ok işaretleri oluşturuyoruz
                     ok1 = "🟢" if row['1. Gün %'] > 0 else "🔴" if row['1. Gün %'] < 0 else "⚪"
                     ok2 = "🟢" if row['2. Gün %'] > 0 else "🔴" if row['2. Gün %'] < 0 else "⚪"
                     ok3 = "🟢" if row['3. Gün %'] > 0 else "🔴" if row['3. Gün %'] < 0 else "⚪"
+                    ok4 = "🟢" if row['4. Gün %'] > 0 else "🔴" if row['4. Gün %'] < 0 else "⚪"
+                    ok5 = "🟢" if row['5. Gün %'] > 0 else "🔴" if row['5. Gün %'] < 0 else "⚪"
                     
                     md_tablo += (
                         f"| **{row['Hisse']}** "
                         f"| {row['Mevcut']:.2f} ₺ "
                         f"| {row['1. Gün']:.2f} ₺ | {ok1} {row['1. Gün %']:.2f} % "
                         f"| {row['2. Gün']:.2f} ₺ | {ok2} {row['2. Gün %']:.2f} % "
-                        f"| {row['3. Gün']:.2f} ₺ | {ok3} {row['3. Gün %']:.2f} % |\n"
+                        f"| {row['3. Gün']:.2f} ₺ | {ok3} {row['3. Gün %']:.2f} % "
+                        f"| {row['4. Gün']:.2f} ₺ | {ok4} {row['4. Gün %']:.2f} % "
+                        f"| {row['5. Gün']:.2f} ₺ | {ok5} {row['5. Gün %']:.2f} % |\n"
                     )
                 
                 st.markdown(md_tablo)
 
-    # ---------------- SEKME 2: BİREYSEL ANALİZ (Değişmedi) ----------------
+    # ---------------- SEKME 2: BİREYSEL ANALİZ (Aynı Kaldı) ----------------
     with sekme2:
         st.subheader("Tekil Hisse Projeksiyonu")
         hisse_secim = st.selectbox("Grafik Analizi İçin Hisse Seçin:", hazir_modeller)
