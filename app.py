@@ -14,33 +14,44 @@ st.set_page_config(page_title="BİST100 & Emtia Radarı", layout="wide")
 st.title("📈 Derin Öğrenme Fiyat Projeksiyonu (Otonom Kalibrasyonlu)")
 st.markdown("""
 **Sistem Mimarisi:** Her varlık bağımsız bir LSTM ağı tarafından incelenir. 
-**🌟 Otonom Kalibrasyon:** Model, son 15 günün geçmiş tahminlerini gerçek fiyatlarla kıyaslar ve "Hata Payını" bulup bugünkü tahminlerini **kendi kendine kalibre eder**.
-**Yasal Sınır:** ±%10 BİST devre kesici (Altın/Gümüş hariç) aktiftir. *(Yatırım tavsiyesi değildir.)*
+**🌟 Otonom Kalibrasyon:** Model, son 15 günün geçmiş tahminlerini gerçek fiyatlarla kıyaslar ve bugünkü tahminlerini kendi kendine kalibre eder.
+**Birim Dönüşümü:** Küresel emtialar (Altın/Gümüş), anlık Dolar/TL kuru üzerinden otomatik olarak **Gram/TL** birimine çevrilerek gösterilir.
 """)
 
-# 1. Modelleri Klasörden Çek
+# 1. Canlı Dolar Kurunu Çekme (Dönüşüm İçin)
+try:
+    df_kur = yf.download("TRY=X", period="5d", interval="1d", progress=False)
+    kapanis_kur = df_kur['Close']
+    if isinstance(kapanis_kur, pd.DataFrame):
+        kapanis_kur = kapanis_kur.squeeze()
+    dolar_kuru = float(pd.to_numeric(kapanis_kur, errors='coerce').dropna().iloc[-1])
+except Exception:
+    dolar_kuru = 40.0 # Hata durumunda geçici referans kur
+
+st.info(f"💱 **Sistemde Kullanılan Anlık Dolar Kuru:** {dolar_kuru:.2f} ₺")
+
+# 2. Modelleri Klasörden Çek
 ham_modeller = [f.replace("_model.h5", "") for f in os.listdir("src/models") if f.endswith(".h5")]
 
-# 2. Gösterim İsimleri (Görsel İsimlendirme Haritası)
+# 3. Gösterim İsimleri
 isim_haritasi = {
     "XU100.IS": "XU100 Endeksi",
-    "GC=F": "Altın",
-    "SI=F": "Gümüş"
+    "GC=F": "Gram Altın",
+    "SI=F": "Gram Gümüş"
 }
 
 if not ham_modeller:
     st.warning("Lütfen önce arka planda eğitim kodunu çalıştırın.")
 else:
-    # 3. KUSURSUZ SIRALAMA ALGORİTMASI (Senin İstediğin Format)
+    # KUSURSUZ SIRALAMA ALGORİTMASI
     bas_taraf = []
     if "XU100.IS" in ham_modeller: bas_taraf.append("XU100.IS")
     if "GC=F" in ham_modeller: bas_taraf.append("GC=F")
     if "SI=F" in ham_modeller: bas_taraf.append("SI=F")
     
     kalanlar = [m for m in ham_modeller if m not in ["XU100.IS", "GC=F", "SI=F"]]
-    kalanlar.sort() # Kalan hisseleri alfabetik diz (A'dan Z'ye)
-    
-    hazir_modeller = bas_taraf + kalanlar # Listeleri birleştir, sırayı kilitle
+    kalanlar.sort() 
+    hazir_modeller = bas_taraf + kalanlar 
 
     sekme1, sekme2 = st.tabs(["📊 Tüm Piyasa Radarı (1 Haftalık)", "🎯 Bireysel Analiz"])
 
@@ -74,7 +85,7 @@ else:
                         model_yolu = f'src/models/{hisse}_model.h5' 
                         model = load_model(model_yolu)
 
-                        # Otonom Hata Düzeltme (Bias Correction)
+                        # Otonom Hata Düzeltme
                         son_75 = olcekli_veri[-75:]
                         X_batch = np.array([son_75[j : j + 60] for j in range(15)])
                         y_pred_batch = model.predict(X_batch, verbose=0)
@@ -92,9 +103,18 @@ else:
                         
                         kalibre_tahmin_tl = ham_tahmin_tl - ortalama_hata
 
-                        # Devre Kesici
+                        # 🌟 DÖNÜŞÜM MOTORU: Eğer varlık Altın veya Gümüş ise ONS/USD'yi GRAM/TL'ye çevir!
+                        if hisse in ["GC=F", "SI=F"]:
+                            carpan = dolar_kuru / 31.1034768
+                            kalibre_tahmin_tl = kalibre_tahmin_tl * carpan
+                            referans_fiyat = fiyatlar[-1][0] * carpan
+                            suanki_fiyat_gosterim = fiyatlar[-1][0] * carpan
+                        else:
+                            referans_fiyat = fiyatlar[-1][0]
+                            suanki_fiyat_gosterim = fiyatlar[-1][0]
+
+                        # Devre Kesici Kontrolü
                         limitli_tahmin_tl = []
-                        referans_fiyat = fiyatlar[-1][0] 
                         for ham in kalibre_tahmin_tl:
                             tavan = referans_fiyat * 1.10
                             taban = referans_fiyat * 0.90
@@ -102,19 +122,17 @@ else:
                             limitli_tahmin_tl.append(kesilmis)
                             referans_fiyat = kesilmis 
                         
-                        suanki_fiyat = fiyatlar[-1][0]
                         gunler = limitli_tahmin_tl[:5]
                         
                         yuzdeler = []
-                        eski_fiyat = suanki_fiyat
+                        eski_fiyat = suanki_fiyat_gosterim
                         for g_fiyat in gunler:
                             yuzdeler.append(((g_fiyat - eski_fiyat) / eski_fiyat) * 100)
                             eski_fiyat = g_fiyat
                             
-                        # Tabloya eklerken teknik kodu değil, GÖRSEL İSMİ ekliyoruz
                         sonuclar.append({
                             "Varlık": gorsel_isim, 
-                            "Mevcut Fiyat": round(suanki_fiyat, 2),
+                            "Mevcut Fiyat": round(suanki_fiyat_gosterim, 2),
                             "g1_f": gunler[0], "g1_y": yuzdeler[0],
                             "g2_f": gunler[1], "g2_y": yuzdeler[1],
                             "g3_f": gunler[2], "g3_y": yuzdeler[2],
@@ -129,14 +147,10 @@ else:
                 
                 progress_bar.progress((i + 1) / len(hazir_modeller))
             
-            durum_metni.success("✅ Otonom Kalibrasyon ve Piyasa Taraması Tamamlandı!")
+            durum_metni.success("✅ Piyasa Taraması Tamamlandı!")
             
             if sonuclar:
                 df_sonuc = pd.DataFrame(sonuclar)
-                
-                # SİLİNEN KISIM: df_sonuc = df_sonuc.sort_values(...) satırını sildik.
-                # Artık "sonuclar" listesi döngüye hangi sırayla girdiyse o sırayla kalacak.
-                # Yani tam olarak 1. XU100, 2. Altın, 3. Gümüş, 4. AEFES ... şeklinde inecek ve basılacak.
                 
                 csv_data = df_sonuc.to_csv(index=False).encode('utf-8-sig')
                 st.markdown("<br>", unsafe_allow_html=True)
@@ -147,7 +161,7 @@ else:
                 )
                 st.markdown("---")
 
-                md_tablo = "| Varlık Adı | Mevcut Fiyat | 1. Gün (Yarın) | 2. Gün | 3. Gün | 4. Gün | 5. Gün |\n"
+                md_tablo = "| Varlık Adı | Mevcut Fiyat (₺) | 1. Gün | 2. Gün | 3. Gün | 4. Gün | 5. Gün |\n"
                 md_tablo += "|:---|:---:|:---:|:---:|:---:|:---:|:---:|\n"
                 
                 for _, row in df_sonuc.iterrows():
@@ -212,10 +226,20 @@ else:
                     
                     kalibre_tahmin_tl = ham_tahmin_tl - ortalama_hata
 
+                    # 🌟 DÖNÜŞÜM MOTORU (Grafik ve Tekil Tablo İçin)
+                    if hisse_secim in ["GC=F", "SI=F"]:
+                        carpan = dolar_kuru / 31.1034768
+                        kalibre_tahmin_tl = kalibre_tahmin_tl * carpan
+                        fiyatlar_gosterim = fiyatlar * carpan
+                        ortalama_hata_gosterim = ortalama_hata * carpan
+                    else:
+                        fiyatlar_gosterim = fiyatlar
+                        ortalama_hata_gosterim = ortalama_hata
+
                     limitli_tahmin_tl = []
                     taban_listesi = []
                     tavan_listesi = []
-                    referans_fiyat = fiyatlar[-1][0] 
+                    referans_fiyat = fiyatlar_gosterim[-1][0] 
 
                     for ham in kalibre_tahmin_tl:
                         tavan_fiyat = referans_fiyat * 1.10
@@ -235,19 +259,19 @@ else:
 
                     with sol_sutun:
                         fig, ax = plt.subplots(figsize=(7, 5))
-                        ax.plot(kapanis.index[-30:], fiyatlar[-30:], label='Son 30 Gün', marker='o', linewidth=2)
+                        ax.plot(kapanis.index[-30:], fiyatlar_gosterim[-30:], label='Son 30 Gün', marker='o', linewidth=2)
                         ax.plot(tahmin_tarihleri, limitli_tahmin_tl, label='Kalibre Edilmiş Tahmin', color='green', marker='x', linewidth=2)
-                        ax.set_title(f"{gorsel_isim} - Fiyat Projeksiyonu")
+                        ax.set_title(f"{gorsel_isim} - Fiyat Projeksiyonu (₺)")
                         ax.grid(True, alpha=0.3)
                         ax.legend()
                         st.pyplot(fig, use_container_width=True)
 
                     with sag_sutun:
-                        st.markdown(f"**Son İşlem Günü Fiyatı:** {fiyatlar[-1][0]:.2f} | **Model Sapma Payı:** {ortalama_hata:.2f} (Otonom Düzeltildi)")
+                        st.markdown(f"**Son İşlem Günü Fiyatı:** {fiyatlar_gosterim[-1][0]:.2f} ₺ | **Model Sapma Payı:** {ortalama_hata_gosterim:.2f} ₺ (Otonom Düzeltildi)")
                         
                         md_tablo = "| Tarih | Yasal Taban (-10%) | Yasal Tavan (+10%) | 🤖 Kalibre Tahmin |\n|:---|:---:|:---:|:---:|\n"
                         for tarih, taban, tavan, fiyat in zip(tahmin_tarihleri, taban_listesi, tavan_listesi, limitli_tahmin_tl):
-                            md_tablo += f"| {tarih.strftime('%d.%m.%Y')} | {taban:.2f} | {tavan:.2f} | **{fiyat:.2f}** |\n"
+                            md_tablo += f"| {tarih.strftime('%d.%m.%Y')} | {taban:.2f} ₺ | {tavan:.2f} ₺ | **{fiyat:.2f} ₺** |\n"
                         st.markdown(md_tablo)
                 
                 except Exception as e:
