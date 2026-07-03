@@ -31,16 +31,16 @@ isim_haritasi = {
 if not ham_modeller:
     st.warning("Lütfen önce arka planda eğitim kodunu çalıştırın.")
 else:
-    # 3. ÖZEL SIRALAMA ALGORİTMASI
+    # 3. KUSURSUZ SIRALAMA ALGORİTMASI (Senin İstediğin Format)
     bas_taraf = []
     if "XU100.IS" in ham_modeller: bas_taraf.append("XU100.IS")
     if "GC=F" in ham_modeller: bas_taraf.append("GC=F")
     if "SI=F" in ham_modeller: bas_taraf.append("SI=F")
     
     kalanlar = [m for m in ham_modeller if m not in ["XU100.IS", "GC=F", "SI=F"]]
-    kalanlar.sort() # Kalan hisseleri alfabetik diz
+    kalanlar.sort() # Kalan hisseleri alfabetik diz (A'dan Z'ye)
     
-    hazir_modeller = bas_taraf + kalanlar # Listeleri birleştir
+    hazir_modeller = bas_taraf + kalanlar # Listeleri birleştir, sırayı kilitle
 
     sekme1, sekme2 = st.tabs(["📊 Tüm Piyasa Radarı (1 Haftalık)", "🎯 Bireysel Analiz"])
 
@@ -111,8 +111,6 @@ else:
                             yuzdeler.append(((g_fiyat - eski_fiyat) / eski_fiyat) * 100)
                             eski_fiyat = g_fiyat
                             
-                        total_degisim = ((gunler[4] - suanki_fiyat) / suanki_fiyat) * 100
-                        
                         # Tabloya eklerken teknik kodu değil, GÖRSEL İSMİ ekliyoruz
                         sonuclar.append({
                             "Varlık": gorsel_isim, 
@@ -121,8 +119,7 @@ else:
                             "g2_f": gunler[1], "g2_y": yuzdeler[1],
                             "g3_f": gunler[2], "g3_y": yuzdeler[2],
                             "g4_f": gunler[3], "g4_y": yuzdeler[3],
-                            "g5_f": gunler[4], "g5_y": yuzdeler[4],
-                            "Siralama_Skoru": total_degisim
+                            "g5_f": gunler[4], "g5_y": yuzdeler[4]
                         })
                         
                         tf.keras.backend.clear_session()
@@ -137,15 +134,14 @@ else:
             if sonuclar:
                 df_sonuc = pd.DataFrame(sonuclar)
                 
-                # Excel'e aktarırken de o harika sıralamayı koruması için önce kaydediyoruz
-                # (İstersen burada da sıralama skoruyla değil, gösterim sırasıyla indirebiliriz 
-                #  ama kârlılık sıralaması yatırımcı için daha iyidir. Biz getiriye göre sıraladık)
-                df_sonuc = df_sonuc.sort_values(by="Siralama_Skoru", ascending=False).reset_index(drop=True)
+                # SİLİNEN KISIM: df_sonuc = df_sonuc.sort_values(...) satırını sildik.
+                # Artık "sonuclar" listesi döngüye hangi sırayla girdiyse o sırayla kalacak.
+                # Yani tam olarak 1. XU100, 2. Altın, 3. Gümüş, 4. AEFES ... şeklinde inecek ve basılacak.
                 
-                csv_data = df_sonuc.drop(columns=['Siralama_Skoru']).to_csv(index=False).encode('utf-8-sig')
+                csv_data = df_sonuc.to_csv(index=False).encode('utf-8-sig')
                 st.markdown("<br>", unsafe_allow_html=True)
                 st.download_button(
-                    label="📥 Tüm Sonuçları Excel Olarak İndir", data=csv_data,
+                    label="📥 Tüm Sonuçları Excel Olarak İndir (Alfabetik)", data=csv_data,
                     file_name=f"BIST100_Otonom_Radar_{datetime.date.today().strftime('%Y-%m-%d')}.csv",
                     mime="text/csv"
                 )
@@ -176,7 +172,6 @@ else:
     with sekme2:
         st.subheader("Tekil Varlık Projeksiyonu")
         
-        # Seçim kutusuna (selectbox) 'format_func' ekledik. Arkada GC=F okuyacak, önde Altın yazacak.
         hisse_secim = st.selectbox(
             "Grafik Analizi İçin Varlık Seçin:", 
             hazir_modeller, 
