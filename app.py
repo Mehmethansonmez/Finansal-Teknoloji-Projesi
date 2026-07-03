@@ -103,7 +103,7 @@ else:
                         
                         kalibre_tahmin_tl = ham_tahmin_tl - ortalama_hata
 
-                        # 🌟 DÖNÜŞÜM MOTORU: Eğer varlık Altın veya Gümüş ise ONS/USD'yi GRAM/TL'ye çevir!
+                        # 🌟 DÖNÜŞÜM MOTORU: Altın veya Gümüş ise ONS/USD'yi GRAM/TL'ye çevir!
                         if hisse in ["GC=F", "SI=F"]:
                             carpan = dolar_kuru / 31.1034768
                             kalibre_tahmin_tl = kalibre_tahmin_tl * carpan
@@ -161,26 +161,48 @@ else:
                 )
                 st.markdown("---")
 
-                md_tablo = "| Varlık Adı | Mevcut Fiyat (₺) | 1. Gün | 2. Gün | 3. Gün | 4. Gün | 5. Gün |\n"
-                md_tablo += "|:---|:---:|:---:|:---:|:---:|:---:|:---:|\n"
+                # --- 🌟 ÇİFT SÜTUN (BLOK) MANTIĞI BURADA BAŞLIYOR ---
                 
-                for _, row in df_sonuc.iterrows():
-                    ok1 = "🟢" if row['g1_y'] > 0 else "🔴" if row['g1_y'] < 0 else "⚪"
-                    ok2 = "🟢" if row['g2_y'] > 0 else "🔴" if row['g2_y'] < 0 else "⚪"
-                    ok3 = "🟢" if row['g3_y'] > 0 else "🔴" if row['g3_y'] < 0 else "⚪"
-                    ok4 = "🟢" if row['g4_y'] > 0 else "🔴" if row['g4_y'] < 0 else "⚪"
-                    ok5 = "🟢" if row['g5_y'] > 0 else "🔴" if row['g5_y'] < 0 else "⚪"
+                # Veriyi tam ortadan ikiye bölüyoruz
+                yari_nokta = len(df_sonuc) // 2 + (len(df_sonuc) % 2)
+                df_sol = df_sonuc.iloc[:yari_nokta]
+                df_sag = df_sonuc.iloc[yari_nokta:]
+                
+                # Streamlit ile ekranı 2 eşit sütuna ayırıyoruz
+                sol_sutun, sag_sutun = st.columns(2)
+                
+                # Tablo oluşturma işlemini bir fonksiyona bağladık ki iki kere aynı kodu yazmayalım
+                def tablo_olustur(df):
+                    md_tablo = "| Varlık | Mevcut (₺) | 1. Gün | 2. Gün | 3. Gün | 4. Gün | 5. Gün |\n"
+                    md_tablo += "|:---|:---:|:---:|:---:|:---:|:---:|:---:|\n"
                     
-                    md_tablo += (
-                        f"| **{row['Varlık']}** "
-                        f"| {row['Mevcut Fiyat']:.2f} "
-                        f"| {ok1} %{row['g1_y']:.2f} ➔ {row['g1_f']:.2f} "
-                        f"| {ok2} %{row['g2_y']:.2f} ➔ {row['g2_f']:.2f} "
-                        f"| {ok3} %{row['g3_y']:.2f} ➔ {row['g3_f']:.2f} "
-                        f"| {ok4} %{row['g4_y']:.2f} ➔ {row['g4_f']:.2f} "
-                        f"| {ok5} %{row['g5_y']:.2f} ➔ {row['g5_f']:.2f} |\n"
-                    )
-                st.markdown(md_tablo)
+                    for _, row in df.iterrows():
+                        ok1 = "🟢" if row['g1_y'] > 0 else "🔴" if row['g1_y'] < 0 else "⚪"
+                        ok2 = "🟢" if row['g2_y'] > 0 else "🔴" if row['g2_y'] < 0 else "⚪"
+                        ok3 = "🟢" if row['g3_y'] > 0 else "🔴" if row['g3_y'] < 0 else "⚪"
+                        ok4 = "🟢" if row['g4_y'] > 0 else "🔴" if row['g4_y'] < 0 else "⚪"
+                        ok5 = "🟢" if row['g5_y'] > 0 else "🔴" if row['g5_y'] < 0 else "⚪"
+                        
+                        md_tablo += (
+                            f"| **{row['Varlık'][:10]}** " # İsimler çok uzunsa tablo taşmasın diye ilk 10 karakteri alır
+                            f"| {row['Mevcut Fiyat']:.2f} "
+                            f"| {ok1} %{row['g1_y']:.1f} ➔ {row['g1_f']:.1f} "
+                            f"| {ok2} %{row['g2_y']:.1f} ➔ {row['g2_f']:.1f} "
+                            f"| {ok3} %{row['g3_y']:.1f} ➔ {row['g3_f']:.1f} "
+                            f"| {ok4} %{row['g4_y']:.1f} ➔ {row['g4_f']:.1f} "
+                            f"| {ok5} %{row['g5_y']:.1f} ➔ {row['g5_f']:.1f} |\n"
+                        )
+                    return md_tablo
+
+                # Sol sütuna listenin ilk yarısını bas
+                with sol_sutun:
+                    st.markdown(tablo_olustur(df_sol))
+                
+                # Sağ sütuna listenin ikinci yarısını bas
+                with sag_sutun:
+                    st.markdown(tablo_olustur(df_sag))
+                
+                # ----------------------------------------------------
 
     # ---------------- SEKME 2: BİREYSEL ANALİZ ----------------
     with sekme2:
@@ -255,9 +277,9 @@ else:
                     tahmin_tarihleri = [son_tarih + datetime.timedelta(days=i) for i in range(1, 8)]
 
                     st.markdown("---")
-                    sol_sutun, sag_sutun = st.columns([2, 3])
+                    sol_sutun_grafik, sag_sutun_grafik = st.columns([2, 3])
 
-                    with sol_sutun:
+                    with sol_sutun_grafik:
                         fig, ax = plt.subplots(figsize=(7, 5))
                         ax.plot(kapanis.index[-30:], fiyatlar_gosterim[-30:], label='Son 30 Gün', marker='o', linewidth=2)
                         ax.plot(tahmin_tarihleri, limitli_tahmin_tl, label='Kalibre Edilmiş Tahmin', color='green', marker='x', linewidth=2)
@@ -266,7 +288,7 @@ else:
                         ax.legend()
                         st.pyplot(fig, use_container_width=True)
 
-                    with sag_sutun:
+                    with sag_sutun_grafik:
                         st.markdown(f"**Son İşlem Günü Fiyatı:** {fiyatlar_gosterim[-1][0]:.2f} ₺ | **Model Sapma Payı:** {ortalama_hata_gosterim:.2f} ₺ (Otonom Düzeltildi)")
                         
                         md_tablo = "| Tarih | Yasal Taban (-10%) | Yasal Tavan (+10%) | 🤖 Kalibre Tahmin |\n|:---|:---:|:---:|:---:|\n"
