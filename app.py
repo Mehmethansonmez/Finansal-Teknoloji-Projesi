@@ -9,13 +9,13 @@ from sklearn.preprocessing import MinMaxScaler
 import datetime
 import os
 
-st.set_page_config(page_title="BİST100 & Emtia Radarı", layout="wide")
+st.set_page_config(page_title="BİST100 & Emtia Radarı V2", layout="wide")
 
-st.title("📈 Derin Öğrenme Fiyat Projeksiyonu (Otonom Kalibrasyonlu)")
+st.title("📈 Derin Öğrenme Fiyat Projeksiyonu V2 (Çok Değişkenli)")
 st.markdown("""
-**Sistem Mimarisi:** Her varlık bağımsız bir LSTM ağı tarafından incelenir. 
+**Sistem Mimarisi (V2):** Modeller artık sadece Fiyat'ı değil; **Hacim, RSI ve MACD** indikatörlerini eşzamanlı analiz eden çok boyutlu LSTM ağlarıyla donatılmıştır.
 **🌟 Otonom Kalibrasyon:** Model, son 15 günün geçmiş tahminlerini gerçek fiyatlarla kıyaslar ve bugünkü tahminlerini kendi kendine kalibre eder.
-**Birim Dönüşümü:** Küresel emtialar (Altın/Gümüş), anlık Dolar/TL kuru üzerinden otomatik olarak **Gram/TL** birimine çevrilerek gösterilir.
+**Birim Dönüşümü:** Küresel emtialar anlık Dolar/TL kuru üzerinden **Gram/TL** birimine çevrilerek gösterilir.
 """)
 
 # 1. Canlı Dolar Kurunu Çekme (Dönüşüm İçin)
@@ -26,7 +26,7 @@ try:
         kapanis_kur = kapanis_kur.squeeze()
     dolar_kuru = float(pd.to_numeric(kapanis_kur, errors='coerce').dropna().iloc[-1])
 except Exception:
-    dolar_kuru = 40.0 # Hata durumunda geçici referans kur
+    dolar_kuru = 40.0
 
 st.info(f"💱 **Sistemde Kullanılan Anlık Dolar Kuru:** {dolar_kuru:.2f} ₺")
 
@@ -41,7 +41,7 @@ isim_haritasi = {
 }
 
 if not ham_modeller:
-    st.warning("Lütfen önce arka planda eğitim kodunu çalıştırın.")
+    st.warning("Lütfen önce arka planda eğitim kodunu çalıştırıp modelleri yükleyin.")
 else:
     # KUSURSUZ SIRALAMA ALGORİTMASI
     bas_taraf = []
@@ -53,7 +53,7 @@ else:
     kalanlar.sort() 
     hazir_modeller = bas_taraf + kalanlar 
 
-    sekme1, sekme2 = st.tabs(["📊 Tüm Piyasa Radarı (1 Haftalık)", "🎯 Bireysel Analiz"])
+    sekme1, sekme2 = st.tabs(["📊 Tüm Piyasa Radarı (V2 Sinyalleri)", "🎯 Bireysel Analiz"])
 
     # ---------------- SEKME 1: TOPLU TARAMA ----------------
     with sekme1:
@@ -62,56 +62,72 @@ else:
         if st.button("Piyasayı Tarat (Tahminleri Hesapla)"):
             progress_bar = st.progress(0)
             durum_metni = st.empty()
-            
             sonuclar = []
             
             for i, hisse in enumerate(hazir_modeller):
                 gorsel_isim = isim_haritasi.get(hisse, hisse)
-                durum_metni.text(f"Otonom Analiz & Kalibrasyon: {gorsel_isim} ({i+1}/{len(hazir_modeller)})")
+                durum_metni.text(f"V2 Analiz & Kalibrasyon: {gorsel_isim} ({i+1}/{len(hazir_modeller)})")
                 
                 try:
                     df = yf.download(hisse, period="1y", interval="1d", progress=False)
-                    kapanis_ham = df['Close']
-                    if isinstance(kapanis_ham, pd.DataFrame):
-                        kapanis_ham = kapanis_ham.squeeze()
-                        
-                    kapanis = pd.to_numeric(kapanis_ham, errors='coerce').dropna()
                     
-                    if len(kapanis) >= 75:
-                        fiyatlar = kapanis.values.reshape(-1, 1)
-                        scaler = MinMaxScaler(feature_range=(0, 1))
-                        olcekli_veri = scaler.fit_transform(fiyatlar)
+                    # --- V2 SİNYAL İŞLEME (RSI, MACD, Volume) ---
+                    df['Volume'] = df['Volume'].replace(0, np.nan).ffill().bfill()
+                    
+                    delta = df['Close'].diff()
+                    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+                    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+                    rs = gain / loss
+                    df['RSI'] = 100 - (100 / (1 + rs))
+                    
+                    exp1 = df['Close'].ewm(span=12, adjust=False).mean()
+                    exp2 = df['Close'].ewm(span=26, adjust=False).mean()
+                    df['MACD'] = exp1 - exp2
+                    
+                    df.dropna(inplace=True)
+                    
+                    if len(df) >= 75:
+                        # ÇİFT ÖLÇEKLENDİRME (Dual Scaler)
+                        features = df[['Close', 'Volume', 'RSI', 'MACD']].values
+                        target = df[['Close']].values
+                        
+                        scaler_X = MinMaxScaler(feature_range=(0, 1))
+                        scaler_y = MinMaxScaler(feature_range=(0, 1))
+                        
+                        scaled_X = scaler_X.fit_transform(features)
+                        scaler_y.fit(target) # Sadece sınırları öğrenmesi için
                         
                         model_yolu = f'src/models/{hisse}_model.h5' 
                         model = load_model(model_yolu)
 
-                        # Otonom Hata Düzeltme
-                        son_75 = olcekli_veri[-75:]
-                        X_batch = np.array([son_75[j : j + 60] for j in range(15)])
+                        # Otonom Hata Düzeltme (Bias Correction)
+                        son_75_X = scaled_X[-75:]
+                        X_batch = np.array([son_75_X[j : j + 60] for j in range(15)])
                         y_pred_batch = model.predict(X_batch, verbose=0)
                         
                         tahminler_1g_olcekli = y_pred_batch[:, 0].reshape(-1, 1)
-                        tahminler_1g_tl = scaler.inverse_transform(tahminler_1g_olcekli).flatten()
-                        gercekler_15g_tl = fiyatlar[-15:].flatten()
+                        tahminler_1g_tl = scaler_y.inverse_transform(tahminler_1g_olcekli).flatten()
+                        gercekler_15g_tl = target[-15:].flatten()
                         
                         ortalama_hata = np.mean(tahminler_1g_tl - gercekler_15g_tl)
                         
-                        # Gelecek Tahmini
-                        son_60 = olcekli_veri[-60:].reshape(1, 60, 1)
-                        tahmin_olcekli = model.predict(son_60, verbose=0)
-                        ham_tahmin_tl = scaler.inverse_transform(tahmin_olcekli.reshape(-1, 1)).flatten()
+                        # Gelecek Tahmini (V2)
+                        son_60_X = scaled_X[-60:].reshape(1, 60, 4)
+                        tahmin_olcekli = model.predict(son_60_X, verbose=0)
+                        ham_tahmin_tl = scaler_y.inverse_transform(tahmin_olcekli.reshape(-1, 1)).flatten()
                         
                         kalibre_tahmin_tl = ham_tahmin_tl - ortalama_hata
 
-                        # 🌟 DÖNÜŞÜM MOTORU: Altın veya Gümüş ise ONS/USD'yi GRAM/TL'ye çevir!
+                        # DÖNÜŞÜM MOTORU
+                        suanki_fiyat = target[-1][0]
                         if hisse in ["GC=F", "SI=F"]:
                             carpan = dolar_kuru / 31.1034768
                             kalibre_tahmin_tl = kalibre_tahmin_tl * carpan
-                            referans_fiyat = fiyatlar[-1][0] * carpan
-                            suanki_fiyat_gosterim = fiyatlar[-1][0] * carpan
+                            referans_fiyat = suanki_fiyat * carpan
+                            suanki_fiyat_gosterim = suanki_fiyat * carpan
                         else:
-                            referans_fiyat = fiyatlar[-1][0]
-                            suanki_fiyat_gosterim = fiyatlar[-1][0]
+                            referans_fiyat = suanki_fiyat
+                            suanki_fiyat_gosterim = suanki_fiyat
 
                         # Devre Kesici Kontrolü
                         limitli_tahmin_tl = []
@@ -123,7 +139,6 @@ else:
                             referans_fiyat = kesilmis 
                         
                         gunler = limitli_tahmin_tl[:5]
-                        
                         yuzdeler = []
                         eski_fiyat = suanki_fiyat_gosterim
                         for g_fiyat in gunler:
@@ -147,7 +162,7 @@ else:
                 
                 progress_bar.progress((i + 1) / len(hazir_modeller))
             
-            durum_metni.success("✅ Piyasa Taraması Tamamlandı!")
+            durum_metni.success("✅ V2 Piyasa Taraması Tamamlandı!")
             
             if sonuclar:
                 df_sonuc = pd.DataFrame(sonuclar)
@@ -156,22 +171,18 @@ else:
                 st.markdown("<br>", unsafe_allow_html=True)
                 st.download_button(
                     label="📥 Tüm Sonuçları Excel Olarak İndir (Alfabetik)", data=csv_data,
-                    file_name=f"BIST100_Otonom_Radar_{datetime.date.today().strftime('%Y-%m-%d')}.csv",
+                    file_name=f"BIST100_V2_Radar_{datetime.date.today().strftime('%Y-%m-%d')}.csv",
                     mime="text/csv"
                 )
                 st.markdown("---")
 
-                # --- 🌟 ÇİFT SÜTUN (BLOK) MANTIĞI BURADA BAŞLIYOR ---
-                
-                # Veriyi tam ortadan ikiye bölüyoruz
+                # ÇİFT SÜTUN
                 yari_nokta = len(df_sonuc) // 2 + (len(df_sonuc) % 2)
                 df_sol = df_sonuc.iloc[:yari_nokta]
                 df_sag = df_sonuc.iloc[yari_nokta:]
                 
-                # Streamlit ile ekranı 2 eşit sütuna ayırıyoruz
                 sol_sutun, sag_sutun = st.columns(2)
                 
-                # Tablo oluşturma işlemini bir fonksiyona bağladık ki iki kere aynı kodu yazmayalım
                 def tablo_olustur(df):
                     md_tablo = "| Varlık | Mevcut (₺) | 1. Gün | 2. Gün | 3. Gün | 4. Gün | 5. Gün |\n"
                     md_tablo += "|:---|:---:|:---:|:---:|:---:|:---:|:---:|\n"
@@ -184,7 +195,7 @@ else:
                         ok5 = "🟢" if row['g5_y'] > 0 else "🔴" if row['g5_y'] < 0 else "⚪"
                         
                         md_tablo += (
-                            f"| **{row['Varlık'][:10]}** " # İsimler çok uzunsa tablo taşmasın diye ilk 10 karakteri alır
+                            f"| **{row['Varlık'][:10]}** "
                             f"| {row['Mevcut Fiyat']:.2f} "
                             f"| {ok1} %{row['g1_y']:.1f} ➔ {row['g1_f']:.1f} "
                             f"| {ok2} %{row['g2_y']:.1f} ➔ {row['g2_f']:.1f} "
@@ -194,15 +205,8 @@ else:
                         )
                     return md_tablo
 
-                # Sol sütuna listenin ilk yarısını bas
-                with sol_sutun:
-                    st.markdown(tablo_olustur(df_sol))
-                
-                # Sağ sütuna listenin ikinci yarısını bas
-                with sag_sutun:
-                    st.markdown(tablo_olustur(df_sag))
-                
-                # ----------------------------------------------------
+                with sol_sutun: st.markdown(tablo_olustur(df_sol))
+                with sag_sutun: st.markdown(tablo_olustur(df_sag))
 
     # ---------------- SEKME 2: BİREYSEL ANALİZ ----------------
     with sekme2:
@@ -216,46 +220,59 @@ else:
 
         if st.button("Analizi Çalıştır"):
             gorsel_isim = isim_haritasi.get(hisse_secim, hisse_secim)
-            with st.spinner(f"{gorsel_isim} verileri çekiliyor ve otonom kalibre ediliyor..."):
+            with st.spinner(f"{gorsel_isim} verileri çekiliyor ve V2 model ile analiz ediliyor..."):
                 try:
                     df = yf.download(hisse_secim, period="1y", interval="1d", progress=False)
-                    kapanis_ham = df['Close']
-                    if isinstance(kapanis_ham, pd.DataFrame):
-                        kapanis_ham = kapanis_ham.squeeze()
-                        
-                    kapanis = pd.to_numeric(kapanis_ham, errors='coerce').dropna()
-                    fiyatlar = kapanis.values.reshape(-1, 1)
+                    
+                    df['Volume'] = df['Volume'].replace(0, np.nan).ffill().bfill()
+                    delta = df['Close'].diff()
+                    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+                    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+                    rs = gain / loss
+                    df['RSI'] = 100 - (100 / (1 + rs))
+                    
+                    exp1 = df['Close'].ewm(span=12, adjust=False).mean()
+                    exp2 = df['Close'].ewm(span=26, adjust=False).mean()
+                    df['MACD'] = exp1 - exp2
+                    
+                    df.dropna(inplace=True)
 
-                    scaler = MinMaxScaler(feature_range=(0, 1))
-                    olcekli_veri = scaler.fit_transform(fiyatlar)
+                    features = df[['Close', 'Volume', 'RSI', 'MACD']].values
+                    target = df[['Close']].values
+
+                    scaler_X = MinMaxScaler(feature_range=(0, 1))
+                    scaler_y = MinMaxScaler(feature_range=(0, 1))
+                    
+                    scaled_X = scaler_X.fit_transform(features)
+                    scaler_y.fit(target)
                     
                     model = load_model(f'src/models/{hisse_secim}_model.h5')
                     
                     ortalama_hata = 0
-                    if len(kapanis) >= 75:
-                        son_75 = olcekli_veri[-75:]
-                        X_batch = np.array([son_75[j : j + 60] for j in range(15)])
+                    if len(df) >= 75:
+                        son_75_X = scaled_X[-75:]
+                        X_batch = np.array([son_75_X[j : j + 60] for j in range(15)])
                         y_pred_batch = model.predict(X_batch, verbose=0)
                         
                         t_1g_olcekli = y_pred_batch[:, 0].reshape(-1, 1)
-                        t_1g_tl = scaler.inverse_transform(t_1g_olcekli).flatten()
-                        g_15g_tl = fiyatlar[-15:].flatten()
+                        t_1g_tl = scaler_y.inverse_transform(t_1g_olcekli).flatten()
+                        g_15g_tl = target[-15:].flatten()
                         ortalama_hata = np.mean(t_1g_tl - g_15g_tl)
 
-                    son_60 = olcekli_veri[-60:].reshape(1, 60, 1)
-                    tahmin_olcekli = model.predict(son_60, verbose=0)
-                    ham_tahmin_tl = scaler.inverse_transform(tahmin_olcekli.reshape(-1, 1)).flatten()
+                    son_60_X = scaled_X[-60:].reshape(1, 60, 4)
+                    tahmin_olcekli = model.predict(son_60_X, verbose=0)
+                    ham_tahmin_tl = scaler_y.inverse_transform(tahmin_olcekli.reshape(-1, 1)).flatten()
                     
                     kalibre_tahmin_tl = ham_tahmin_tl - ortalama_hata
 
-                    # 🌟 DÖNÜŞÜM MOTORU (Grafik ve Tekil Tablo İçin)
+                    # DÖNÜŞÜM MOTORU
                     if hisse_secim in ["GC=F", "SI=F"]:
                         carpan = dolar_kuru / 31.1034768
                         kalibre_tahmin_tl = kalibre_tahmin_tl * carpan
-                        fiyatlar_gosterim = fiyatlar * carpan
+                        fiyatlar_gosterim = target * carpan
                         ortalama_hata_gosterim = ortalama_hata * carpan
                     else:
-                        fiyatlar_gosterim = fiyatlar
+                        fiyatlar_gosterim = target
                         ortalama_hata_gosterim = ortalama_hata
 
                     limitli_tahmin_tl = []
@@ -273,7 +290,7 @@ else:
                         tavan_listesi.append(tavan_fiyat)
                         referans_fiyat = kesilmis_fiyat 
 
-                    son_tarih = kapanis.index[-1]
+                    son_tarih = df.index[-1]
                     tahmin_tarihleri = [son_tarih + datetime.timedelta(days=i) for i in range(1, 8)]
 
                     st.markdown("---")
@@ -281,8 +298,8 @@ else:
 
                     with sol_sutun_grafik:
                         fig, ax = plt.subplots(figsize=(7, 5))
-                        ax.plot(kapanis.index[-30:], fiyatlar_gosterim[-30:], label='Son 30 Gün', marker='o', linewidth=2)
-                        ax.plot(tahmin_tarihleri, limitli_tahmin_tl, label='Kalibre Edilmiş Tahmin', color='green', marker='x', linewidth=2)
+                        ax.plot(df.index[-30:], fiyatlar_gosterim[-30:], label='Son 30 Gün', marker='o', linewidth=2)
+                        ax.plot(tahmin_tarihleri, limitli_tahmin_tl, label='V2 Kalibre Tahmin', color='green', marker='x', linewidth=2)
                         ax.set_title(f"{gorsel_isim} - Fiyat Projeksiyonu (₺)")
                         ax.grid(True, alpha=0.3)
                         ax.legend()
@@ -291,7 +308,7 @@ else:
                     with sag_sutun_grafik:
                         st.markdown(f"**Son İşlem Günü Fiyatı:** {fiyatlar_gosterim[-1][0]:.2f} ₺ | **Model Sapma Payı:** {ortalama_hata_gosterim:.2f} ₺ (Otonom Düzeltildi)")
                         
-                        md_tablo = "| Tarih | Yasal Taban (-10%) | Yasal Tavan (+10%) | 🤖 Kalibre Tahmin |\n|:---|:---:|:---:|:---:|\n"
+                        md_tablo = "| Tarih | Yasal Taban (-10%) | Yasal Tavan (+10%) | 🤖 V2 Kalibre Tahmin |\n|:---|:---:|:---:|:---:|\n"
                         for tarih, taban, tavan, fiyat in zip(tahmin_tarihleri, taban_listesi, tavan_listesi, limitli_tahmin_tl):
                             md_tablo += f"| {tarih.strftime('%d.%m.%Y')} | {taban:.2f} ₺ | {tavan:.2f} ₺ | **{fiyat:.2f} ₺** |\n"
                         st.markdown(md_tablo)
