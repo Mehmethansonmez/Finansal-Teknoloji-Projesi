@@ -1,3 +1,3 @@
-Price,Adj Close,Close,High,Low,Open,Volume
-Ticker,KOZAA.IS,KOZAA.IS,KOZAA.IS,KOZAA.IS,KOZAA.IS,KOZAA.IS
-Date,,,,,,
+Price,Adj Close,Close,High,Low,Open,Volume,RSI,MACD
+Ticker,KOZAA.IS,KOZAA.IS,KOZAA.IS,KOZAA.IS,KOZAA.IS,KOZAA.IS,,
+Date,,,,,,,,
