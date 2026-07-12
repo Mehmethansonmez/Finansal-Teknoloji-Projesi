@@ -9,7 +9,7 @@ from sklearn.preprocessing import MinMaxScaler
 import datetime
 import os
 
-st.set_page_config(page_title="BİST100 & Emtia Radarı V2", layout="wide")
+st.set_page_config(page_title="BİST100 & Emtia Radarı V3", layout="wide")
 
 st.title("📈 Derin Öğrenme Fiyat Projeksiyonu V2 (Çok Değişkenli)")
 st.markdown("""
