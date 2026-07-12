@@ -11,9 +11,9 @@ import os
 
 st.set_page_config(page_title="BİST100 & Emtia Radarı V3", layout="wide")
 
-st.title("📈 Derin Öğrenme Fiyat Projeksiyonu V2 (Çok Değişkenli)")
+st.title("📈 Derin Öğrenme Fiyat Projeksiyonu V3 (Çok Değişkenli)")
 st.markdown("""
-**Sistem Mimarisi (V2):** Modeller artık sadece Fiyat'ı değil; **Hacim, RSI ve MACD** indikatörlerini eşzamanlı analiz eden çok boyutlu LSTM ağlarıyla donatılmıştır.
+**Sistem Mimarisi (V3):** Modeller artık sadece Fiyat'ı değil; **Hacim, RSI ve MACD** indikatörlerini eşzamanlı analiz eden çok boyutlu LSTM ağlarıyla donatılmıştır.
 **🌟 Otonom Kalibrasyon:** Model, son 15 günün geçmiş tahminlerini gerçek fiyatlarla kıyaslar ve bugünkü tahminlerini kendi kendine kalibre eder.
 **Birim Dönüşümü:** Küresel emtialar anlık Dolar/TL kuru üzerinden **Gram/TL** birimine çevrilerek gösterilir.
 """)
