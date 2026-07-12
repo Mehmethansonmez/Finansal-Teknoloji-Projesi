@@ -11,11 +11,14 @@ import os
 
 st.set_page_config(page_title="BİST100 & Emtia Radarı V3", layout="wide")
 
-st.title("📈 Derin Öğrenme Fiyat Projeksiyonu V3 (Çok Değişkenli)")
+st.error("""
+**!PROJE TEST VE GELİŞTİRME AŞAMASINDADIR!** **!KESİNLİKLE GERÇEK PARAYLA KULLANILMASI ÖNERİLMEZ!** **!HİÇBİR YATIRIM TAVSİYESİ VE SORUMLULUK KABUL EDİLMEMEKTEDİR!**
+""")
+
+st.title("📈 Derin Öğrenme Fiyat Projeksiyonu V3 (BiLSTM + Huber)")
 st.markdown("""
-**Sistem Mimarisi (V3):** Modeller artık sadece Fiyat'ı değil; **Hacim, RSI ve MACD** indikatörlerini eşzamanlı analiz eden çok boyutlu LSTM ağlarıyla donatılmıştır.
+**Sistem Mimarisi (V3):** Çift Yönlü LSTM (Bidirectional) hücreleri ve Huber Şok Emici kayıp fonksiyonu ile donatılmış 4 Boyutlu (OHLCV, RSI, MACD) Yapay Zeka.
 **🌟 Otonom Kalibrasyon:** Model, son 15 günün geçmiş tahminlerini gerçek fiyatlarla kıyaslar ve bugünkü tahminlerini kendi kendine kalibre eder.
-**Birim Dönüşümü:** Küresel emtialar anlık Dolar/TL kuru üzerinden **Gram/TL** birimine çevrilerek gösterilir.
 """)
 
 # 1. Canlı Dolar Kurunu Çekme (Dönüşüm İçin)
@@ -26,7 +29,7 @@ try:
         kapanis_kur = kapanis_kur.squeeze()
     dolar_kuru = float(pd.to_numeric(kapanis_kur, errors='coerce').dropna().iloc[-1])
 except Exception:
-    dolar_kuru = 40.0
+    dolar_kuru = 33.0
 
 st.info(f"💱 **Sistemde Kullanılan Anlık Dolar Kuru:** {dolar_kuru:.2f} ₺")
 
@@ -53,7 +56,8 @@ else:
     kalanlar.sort() 
     hazir_modeller = bas_taraf + kalanlar 
 
-    sekme1, sekme2 = st.tabs(["📊 Tüm Piyasa Radarı (V2 Sinyalleri)", "🎯 Bireysel Analiz"])
+    # --- 3 SEKMELİ YENİ YAPI ---
+    sekme1, sekme2, sekme3 = st.tabs(["📊 Tüm Piyasa Radarı", "🎯 Bireysel Analiz", "💼 Model Portföy & Simülatör"])
 
     # ---------------- SEKME 1: TOPLU TARAMA ----------------
     with sekme1:
@@ -66,12 +70,11 @@ else:
             
             for i, hisse in enumerate(hazir_modeller):
                 gorsel_isim = isim_haritasi.get(hisse, hisse)
-                durum_metni.text(f"V2 Analiz & Kalibrasyon: {gorsel_isim} ({i+1}/{len(hazir_modeller)})")
+                durum_metni.text(f"V3 Analiz & Kalibrasyon: {gorsel_isim} ({i+1}/{len(hazir_modeller)})")
                 
                 try:
                     df = yf.download(hisse, period="1y", interval="1d", progress=False)
                     
-                    # --- V2 SİNYAL İŞLEME (RSI, MACD, Volume) ---
                     df['Volume'] = df['Volume'].replace(0, np.nan).ffill().bfill()
                     
                     delta = df['Close'].diff()
@@ -87,7 +90,6 @@ else:
                     df.dropna(inplace=True)
                     
                     if len(df) >= 75:
-                        # ÇİFT ÖLÇEKLENDİRME (Dual Scaler)
                         features = df[['Close', 'Volume', 'RSI', 'MACD']].values
                         target = df[['Close']].values
                         
@@ -95,12 +97,11 @@ else:
                         scaler_y = MinMaxScaler(feature_range=(0, 1))
                         
                         scaled_X = scaler_X.fit_transform(features)
-                        scaler_y.fit(target) # Sadece sınırları öğrenmesi için
+                        scaler_y.fit(target)
                         
                         model_yolu = f'src/models/{hisse}_model.h5' 
                         model = load_model(model_yolu)
 
-                        # Otonom Hata Düzeltme (Bias Correction)
                         son_75_X = scaled_X[-75:]
                         X_batch = np.array([son_75_X[j : j + 60] for j in range(15)])
                         y_pred_batch = model.predict(X_batch, verbose=0)
@@ -111,14 +112,12 @@ else:
                         
                         ortalama_hata = np.mean(tahminler_1g_tl - gercekler_15g_tl)
                         
-                        # Gelecek Tahmini (V2)
                         son_60_X = scaled_X[-60:].reshape(1, 60, 4)
                         tahmin_olcekli = model.predict(son_60_X, verbose=0)
                         ham_tahmin_tl = scaler_y.inverse_transform(tahmin_olcekli.reshape(-1, 1)).flatten()
                         
                         kalibre_tahmin_tl = ham_tahmin_tl - ortalama_hata
 
-                        # DÖNÜŞÜM MOTORU
                         suanki_fiyat = target[-1][0]
                         if hisse in ["GC=F", "SI=F"]:
                             carpan = dolar_kuru / 31.1034768
@@ -129,7 +128,6 @@ else:
                             referans_fiyat = suanki_fiyat
                             suanki_fiyat_gosterim = suanki_fiyat
 
-                        # Devre Kesici Kontrolü
                         limitli_tahmin_tl = []
                         for ham in kalibre_tahmin_tl:
                             tavan = referans_fiyat * 1.10
@@ -145,6 +143,9 @@ else:
                             yuzdeler.append(((g_fiyat - eski_fiyat) / eski_fiyat) * 100)
                             eski_fiyat = g_fiyat
                             
+                        # Portföy sıralaması için Total Getiri yüzdesini de sözlüğe ekliyoruz
+                        total_getiri_yuzde = ((gunler[4] - suanki_fiyat_gosterim) / suanki_fiyat_gosterim) * 100
+
                         sonuclar.append({
                             "Varlık": gorsel_isim, 
                             "Mevcut Fiyat": round(suanki_fiyat_gosterim, 2),
@@ -152,7 +153,8 @@ else:
                             "g2_f": gunler[1], "g2_y": yuzdeler[1],
                             "g3_f": gunler[2], "g3_y": yuzdeler[2],
                             "g4_f": gunler[3], "g4_y": yuzdeler[3],
-                            "g5_f": gunler[4], "g5_y": yuzdeler[4]
+                            "g5_f": gunler[4], "g5_y": yuzdeler[4],
+                            "Total_Getiri": total_getiri_yuzde
                         })
                         
                         tf.keras.backend.clear_session()
@@ -162,21 +164,23 @@ else:
                 
                 progress_bar.progress((i + 1) / len(hazir_modeller))
             
-            durum_metni.success("✅ V2 Piyasa Taraması Tamamlandı!")
+            durum_metni.success("✅ V3 Piyasa Taraması Tamamlandı! Portföy sekmesini kontrol edebilirsiniz.")
             
             if sonuclar:
                 df_sonuc = pd.DataFrame(sonuclar)
                 
-                csv_data = df_sonuc.to_csv(index=False).encode('utf-8-sig')
+                # 🌟 SİSTEM HAFIZASI: Sonuçları 3. sekmede kullanmak üzere RAM'e kaydediyoruz
+                st.session_state['df_hafiza'] = df_sonuc
+                
+                csv_data = df_sonuc.drop(columns=['Total_Getiri']).to_csv(index=False).encode('utf-8-sig')
                 st.markdown("<br>", unsafe_allow_html=True)
                 st.download_button(
-                    label="📥 Tüm Sonuçları Excel Olarak İndir (Alfabetik)", data=csv_data,
-                    file_name=f"BIST100_V2_Radar_{datetime.date.today().strftime('%Y-%m-%d')}.csv",
+                    label="📥 Tüm Sonuçları Excel Olarak İndir", data=csv_data,
+                    file_name=f"BIST100_V3_Radar_{datetime.date.today().strftime('%Y-%m-%d')}.csv",
                     mime="text/csv"
                 )
                 st.markdown("---")
 
-                # ÇİFT SÜTUN
                 yari_nokta = len(df_sonuc) // 2 + (len(df_sonuc) % 2)
                 df_sol = df_sonuc.iloc[:yari_nokta]
                 df_sag = df_sonuc.iloc[yari_nokta:]
@@ -211,7 +215,6 @@ else:
     # ---------------- SEKME 2: BİREYSEL ANALİZ ----------------
     with sekme2:
         st.subheader("Tekil Varlık Projeksiyonu")
-        
         hisse_secim = st.selectbox(
             "Grafik Analizi İçin Varlık Seçin:", 
             hazir_modeller, 
@@ -220,7 +223,7 @@ else:
 
         if st.button("Analizi Çalıştır"):
             gorsel_isim = isim_haritasi.get(hisse_secim, hisse_secim)
-            with st.spinner(f"{gorsel_isim} verileri çekiliyor ve V2 model ile analiz ediliyor..."):
+            with st.spinner(f"{gorsel_isim} verileri çekiliyor ve V3 model ile analiz ediliyor..."):
                 try:
                     df = yf.download(hisse_secim, period="1y", interval="1d", progress=False)
                     
@@ -265,7 +268,6 @@ else:
                     
                     kalibre_tahmin_tl = ham_tahmin_tl - ortalama_hata
 
-                    # DÖNÜŞÜM MOTORU
                     if hisse_secim in ["GC=F", "SI=F"]:
                         carpan = dolar_kuru / 31.1034768
                         kalibre_tahmin_tl = kalibre_tahmin_tl * carpan
@@ -299,19 +301,73 @@ else:
                     with sol_sutun_grafik:
                         fig, ax = plt.subplots(figsize=(7, 5))
                         ax.plot(df.index[-30:], fiyatlar_gosterim[-30:], label='Son 30 Gün', marker='o', linewidth=2)
-                        ax.plot(tahmin_tarihleri, limitli_tahmin_tl, label='V2 Kalibre Tahmin', color='green', marker='x', linewidth=2)
+                        ax.plot(tahmin_tarihleri, limitli_tahmin_tl, label='V3 Kalibre Tahmin', color='green', marker='x', linewidth=2)
                         ax.set_title(f"{gorsel_isim} - Fiyat Projeksiyonu (₺)")
                         ax.grid(True, alpha=0.3)
                         ax.legend()
                         st.pyplot(fig, use_container_width=True)
 
                     with sag_sutun_grafik:
-                        st.markdown(f"**Son İşlem Günü Fiyatı:** {fiyatlar_gosterim[-1][0]:.2f} ₺ | **Model Sapma Payı:** {ortalama_hata_gosterim:.2f} ₺ (Otonom Düzeltildi)")
+                        st.markdown(f"**Son İşlem Günü Fiyatı:** {fiyatlar_gosterim[-1][0]:.2f} ₺ | **Model Sapma Payı:** {ortalama_hata_gosterim:.2f} ₺")
                         
-                        md_tablo = "| Tarih | Yasal Taban (-10%) | Yasal Tavan (+10%) | 🤖 V2 Kalibre Tahmin |\n|:---|:---:|:---:|:---:|\n"
+                        md_tablo = "| Tarih | Yasal Taban (-10%) | Yasal Tavan (+10%) | 🤖 V3 Kalibre Tahmin |\n|:---|:---:|:---:|:---:|\n"
                         for tarih, taban, tavan, fiyat in zip(tahmin_tarihleri, taban_listesi, tavan_listesi, limitli_tahmin_tl):
                             md_tablo += f"| {tarih.strftime('%d.%m.%Y')} | {taban:.2f} ₺ | {tavan:.2f} ₺ | **{fiyat:.2f} ₺** |\n"
                         st.markdown(md_tablo)
                 
                 except Exception as e:
                     st.error(f"Sistem Hatası: {e}")
+
+    # ---------------- SEKME 3: SİMÜLATÖR VE PORTFÖY ----------------
+    with sekme3:
+        st.subheader("💼 V3 Model Portföy & Yatırım Simülatörü")
+        
+        # Hafızada tarama verisi yoksa kullanıcıyı uyar
+        if 'df_hafiza' not in st.session_state:
+            st.warning("👉 Lütfen önce 'Tüm Piyasa Radarı' sekmesine gidip piyasayı taratın. Simülatör o verilere ihtiyaç duyar.")
+        else:
+            df_hafiza = st.session_state['df_hafiza']
+            
+            # --- MODEL PORTFÖY (EN İYİ 10 HİSSE) ---
+            st.markdown("### 🏆 V3 Yapay Zeka Model Portföyü (En Yüksek Beklenti)")
+            st.markdown("Modelin 5. günün sonunda **en yüksek net getiri yüzdesini** beklediği ilk 10 varlık.")
+            
+            # Total Getiriye göre büyükten küçüğe sıralayıp ilk 10'u alıyoruz
+            df_top10 = df_hafiza.sort_values(by="Total_Getiri", ascending=False).head(10)
+            
+            # Şık bir bar grafiği
+            st.bar_chart(data=df_top10.set_index('Varlık')['Total_Getiri'], use_container_width=True)
+            
+            md_portfoy = "| Sıra | Varlık Adı | Mevcut Fiyat | 5 Gün Sonra (Tahmin) | Beklenen Getiri |\n|:---:|:---|:---:|:---:|:---:|\n"
+            for index, (sira, row) in enumerate(df_top10.iterrows(), 1):
+                md_portfoy += f"| **{index}.** | **{row['Varlık']}** | {row['Mevcut Fiyat']:.2f} ₺ | {row['g5_f']:.2f} ₺ | 🟢 **%{row['Total_Getiri']:.2f}** |\n"
+            st.markdown(md_portfoy)
+            
+            st.markdown("---")
+            
+            # --- YATIRIM SİMÜLATÖRÜ ---
+            st.markdown("### 🧮 Yatırım Simülatörü (Ne Yatırsam Ne Olur?)")
+            
+            col_sim1, col_sim2 = st.columns(2)
+            
+            with col_sim1:
+                # Kullanıcı sadece taranan hisseler arasından seçim yapabilir
+                secilen_varlik = st.selectbox("Simüle Etmek İstediğiniz Varlık:", df_hafiza['Varlık'].tolist())
+                yatirim_miktari = st.number_input("Yatırım Miktarı (₺):", min_value=100.0, value=10000.0, step=500.0)
+            
+            # Arkada Matematiği Çalıştır
+            satir = df_hafiza[df_hafiza['Varlık'] == secilen_varlik].iloc[0]
+            alinabilen_adet = yatirim_miktari / satir['Mevcut Fiyat']
+            
+            gun5_para = alinabilen_adet * satir['g5_f']
+            net_kar_zarar = gun5_para - yatirim_miktari
+            
+            with col_sim2:
+                st.info(f"📦 **Alınabilen Miktar (Lot/Gram):** {alinabilen_adet:.4f} Birim")
+                
+                if net_kar_zarar > 0:
+                    st.success(f"💰 **5. Gün Sonundaki Kasanız:** {gun5_para:.2f} ₺\n\n🟢 **Net Kâr:** +{net_kar_zarar:.2f} ₺")
+                elif net_kar_zarar < 0:
+                    st.error(f"📉 **5. Gün Sonundaki Kasanız:** {gun5_para:.2f} ₺\n\n🔴 **Net Zarar:** {net_kar_zarar:.2f} ₺")
+                else:
+                    st.warning(f"⚖️ **5. Gün Sonundaki Kasanız:** {gun5_para:.2f} ₺\n\n⚪ **Kâr/Zarar Yok**")
