@@ -11,7 +11,7 @@ import os
 
 st.set_page_config(page_title="BİST100 & Emtia Radarı V3", layout="wide")
 
-st.title("📈 Derin Öğrenme Fiyat Projeksiyonu V3 (BiLSTM + Huber)")
+st.title("📈 Derin Öğrenme Fiyat Projeksiyonu V3")
 st.markdown("""
 **Sistem Mimarisi (V3):** Çift Yönlü LSTM (Bidirectional) hücreleri ve Huber Şok Emici kayıp fonksiyonu ile donatılmış 4 Boyutlu (OHLCV, RSI, MACD) Yapay Zeka.
 **🌟 Otonom Kalibrasyon:** Model, son 15 günün geçmiş tahminlerini gerçek fiyatlarla kıyaslar ve bugünkü tahminlerini kendi kendine kalibre eder.
@@ -52,8 +52,13 @@ else:
     kalanlar.sort() 
     hazir_modeller = bas_taraf + kalanlar 
 
-    # --- 3 SEKMELİ YENİ YAPI ---
-    sekme1, sekme2, sekme3 = st.tabs(["📊 Tüm Piyasa Radarı", "🎯 Bireysel Analiz", "💼 Model Portföy & Simülatör"])
+    # --- 4 SEKMELİ YENİ YAPI ---
+    sekme1, sekme2, sekme3, sekme4 = st.tabs([
+        "📊 Tüm Piyasa Radarı", 
+        "🎯 Bireysel Analiz", 
+        "🏆 V3 Model Portföy", 
+        "💼 Kendi Portföyüm (Simülatör)"
+    ])
 
     # ---------------- SEKME 1: TOPLU TARAMA ----------------
     with sekme1:
@@ -139,7 +144,7 @@ else:
                             yuzdeler.append(((g_fiyat - eski_fiyat) / eski_fiyat) * 100)
                             eski_fiyat = g_fiyat
                             
-                        # Portföy sıralaması için Total Getiri yüzdesini de sözlüğe ekliyoruz
+                        # Portföy sıralaması için Total Getiri yüzdesi
                         total_getiri_yuzde = ((gunler[4] - suanki_fiyat_gosterim) / suanki_fiyat_gosterim) * 100
 
                         sonuclar.append({
@@ -160,12 +165,12 @@ else:
                 
                 progress_bar.progress((i + 1) / len(hazir_modeller))
             
-            durum_metni.success("✅ V3 Piyasa Taraması Tamamlandı! Portföy sekmesini kontrol edebilirsiniz.")
+            durum_metni.success("✅ V3 Piyasa Taraması Tamamlandı! Portföy sekmelerini kontrol edebilirsiniz.")
             
             if sonuclar:
                 df_sonuc = pd.DataFrame(sonuclar)
                 
-                # 🌟 SİSTEM HAFIZASI: Sonuçları 3. sekmede kullanmak üzere RAM'e kaydediyoruz
+                # SİSTEM HAFIZASI
                 st.session_state['df_hafiza'] = df_sonuc
                 
                 csv_data = df_sonuc.drop(columns=['Total_Getiri']).to_csv(index=False).encode('utf-8-sig')
@@ -314,56 +319,105 @@ else:
                 except Exception as e:
                     st.error(f"Sistem Hatası: {e}")
 
-    # ---------------- SEKME 3: SİMÜLATÖR VE PORTFÖY ----------------
+    # ---------------- SEKME 3: MODEL PORTFÖY ----------------
     with sekme3:
-        st.subheader("💼 V3 Model Portföy & Yatırım Simülatörü")
+        st.subheader("🏆 V3 Yapay Zeka Model Portföyü (Top 10)")
         
-        # Hafızada tarama verisi yoksa kullanıcıyı uyar
         if 'df_hafiza' not in st.session_state:
-            st.warning("👉 Lütfen önce 'Tüm Piyasa Radarı' sekmesine gidip piyasayı taratın. Simülatör o verilere ihtiyaç duyar.")
+            st.warning("👉 Lütfen önce 'Tüm Piyasa Radarı' sekmesine gidip piyasayı taratın.")
         else:
             df_hafiza = st.session_state['df_hafiza']
             
-            # --- MODEL PORTFÖY (EN İYİ 10 HİSSE) ---
-            st.markdown("### 🏆 V3 Yapay Zeka Model Portföyü (En Yüksek Beklenti)")
-            st.markdown("Modelin 5. günün sonunda **en yüksek net getiri yüzdesini** beklediği ilk 10 varlık.")
-            
-            # Total Getiriye göre büyükten küçüğe sıralayıp ilk 10'u alıyoruz
+            st.markdown("Modelin 5. günün sonunda **en yüksek net getiri yüzdesini** beklediği ilk 10 varlık listesi.")
             df_top10 = df_hafiza.sort_values(by="Total_Getiri", ascending=False).head(10)
             
-            # Şık bir bar grafiği
             st.bar_chart(data=df_top10.set_index('Varlık')['Total_Getiri'], use_container_width=True)
             
             md_portfoy = "| Sıra | Varlık Adı | Mevcut Fiyat | 5 Gün Sonra (Tahmin) | Beklenen Getiri |\n|:---:|:---|:---:|:---:|:---:|\n"
             for index, (sira, row) in enumerate(df_top10.iterrows(), 1):
                 md_portfoy += f"| **{index}.** | **{row['Varlık']}** | {row['Mevcut Fiyat']:.2f} ₺ | {row['g5_f']:.2f} ₺ | 🟢 **%{row['Total_Getiri']:.2f}** |\n"
             st.markdown(md_portfoy)
+
+    # ---------------- SEKME 4: KENDİ PORTFÖYÜM (SİMÜLATÖR) ----------------
+    with sekme4:
+        st.subheader("💼 Kendi Portföyünü Tasarla & Simüle Et")
+        
+        if 'df_hafiza' not in st.session_state:
+            st.warning("👉 Lütfen önce 'Tüm Piyasa Radarı' sekmesine gidip piyasayı taratın.")
+        else:
+            df_hafiza = st.session_state['df_hafiza']
             
-            st.markdown("---")
+            # MULTISELECT: İstenilen kadar varlık seçilebilir
+            secilen_varliklar = st.multiselect(
+                "Portföyüne Eklemek İstediğin Varlıkları Seç:", 
+                df_hafiza['Varlık'].tolist()
+            )
             
-            # --- YATIRIM SİMÜLATÖRÜ ---
-            st.markdown("### 🧮 Yatırım Simülatörü (Ne Yatırsam Ne Olur?)")
-            
-            col_sim1, col_sim2 = st.columns(2)
-            
-            with col_sim1:
-                # Kullanıcı sadece taranan hisseler arasından seçim yapabilir
-                secilen_varlik = st.selectbox("Simüle Etmek İstediğiniz Varlık:", df_hafiza['Varlık'].tolist())
-                yatirim_miktari = st.number_input("Yatırım Miktarı (₺):", min_value=100.0, value=10000.0, step=500.0)
-            
-            # Arkada Matematiği Çalıştır
-            satir = df_hafiza[df_hafiza['Varlık'] == secilen_varlik].iloc[0]
-            alinabilen_adet = yatirim_miktari / satir['Mevcut Fiyat']
-            
-            gun5_para = alinabilen_adet * satir['g5_f']
-            net_kar_zarar = gun5_para - yatirim_miktari
-            
-            with col_sim2:
-                st.info(f"📦 **Alınabilen Miktar (Lot/Gram):** {alinabilen_adet:.4f} Birim")
+            if secilen_varliklar:
+                st.markdown("### 💰 Yatırım Dağılımı")
+                st.markdown("Seçtiğin her varlık için yatırmak istediğin tutarı belirle:")
                 
-                if net_kar_zarar > 0:
-                    st.success(f"💰 **5. Gün Sonundaki Kasanız:** {gun5_para:.2f} ₺\n\n🟢 **Net Kâr:** +{net_kar_zarar:.2f} ₺")
-                elif net_kar_zarar < 0:
-                    st.error(f"📉 **5. Gün Sonundaki Kasanız:** {gun5_para:.2f} ₺\n\n🔴 **Net Zarar:** {net_kar_zarar:.2f} ₺")
-                else:
-                    st.warning(f"⚖️ **5. Gün Sonundaki Kasanız:** {gun5_para:.2f} ₺\n\n⚪ **Kâr/Zarar Yok**")
+                toplam_yatirim = 0
+                toplam_gelecek = 0
+                portfoy_detay = []
+                
+                # Ekranı iki sütuna bölerek input kutularını yan yana şıkça diziyoruz
+                col1, col2 = st.columns(2)
+                
+                for i, varlik in enumerate(secilen_varliklar):
+                    satir = df_hafiza[df_hafiza['Varlık'] == varlik].iloc[0]
+                    mevcut_fiyat = satir['Mevcut Fiyat']
+                    hedef_fiyat = satir['g5_f']
+                    
+                    with col1 if i % 2 == 0 else col2:
+                        miktar = st.number_input(f"{varlik} (₺):", min_value=0.0, value=1000.0, step=500.0, key=f"input_{varlik}")
+                        
+                    if miktar > 0:
+                        adet = miktar / mevcut_fiyat
+                        gelecek_deger = adet * hedef_fiyat
+                        kar_zarar = gelecek_deger - miktar
+                        
+                        toplam_yatirim += miktar
+                        toplam_gelecek += gelecek_deger
+                        
+                        portfoy_detay.append({
+                            "Varlık": varlik,
+                            "Yatırılan (₺)": miktar,
+                            "Alınan Adet/Gram": adet,
+                            "Mevcut Fiyat": mevcut_fiyat,
+                            "5. Gün Hedef": hedef_fiyat,
+                            "5. Gün Sonucu (₺)": gelecek_deger,
+                            "Net Kâr/Zarar (₺)": kar_zarar
+                        })
+                
+                if toplam_yatirim > 0:
+                    st.markdown("---")
+                    st.markdown("### 📊 Portföy Sonuç Özeti")
+                    
+                    toplam_kar = toplam_gelecek - toplam_yatirim
+                    toplam_getiri_yuzde = (toplam_kar / toplam_yatirim) * 100
+                    
+                    # 🌟 Dashboard Metrikleri
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric("Toplam Yatırım", f"{toplam_yatirim:,.2f} ₺")
+                    m2.metric("5. Gün Beklenen Kasa", f"{toplam_gelecek:,.2f} ₺", f"{toplam_kar:+,.2f} ₺")
+                    m3.metric("Portföy Getirisi", f"%{toplam_getiri_yuzde:+.2f}")
+                    
+                    st.markdown("#### Detaylı Dağılım Tablosu")
+                    df_portfoy = pd.DataFrame(portfoy_detay)
+                    
+                    md_table = "| Varlık | Yatırılan (₺) | Adet/Gram | Mevcut Fiyat | 5. Gün Hedefi | 5. Gün Kasası | Net Kâr/Zarar |\n"
+                    md_table += "|:---|:---:|:---:|:---:|:---:|:---:|:---:|\n"
+                    
+                    for _, row in df_portfoy.iterrows():
+                        kz_icon = "🟢" if row['Net Kâr/Zarar (₺)'] > 0 else "🔴" if row['Net Kâr/Zarar (₺)'] < 0 else "⚪"
+                        md_table += (
+                            f"| **{row['Varlık']}** "
+                            f"| {row['Yatırılan (₺)']:.2f} ₺ "
+                            f"| {row['Alınan Adet/Gram']:.2f} "
+                            f"| {row['Mevcut Fiyat']:.2f} ₺ "
+                            f"| {row['5. Gün Hedef']:.2f} ₺ "
+                            f"| {row['5. Gün Sonucu (₺)']:.2f} ₺ "
+                            f"| {kz_icon} {row['Net Kâr/Zarar (₺)']:+.2f} ₺ |\n"
+                        )
+                    st.markdown(md_table)
