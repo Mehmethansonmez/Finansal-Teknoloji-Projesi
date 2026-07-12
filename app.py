@@ -11,10 +11,6 @@ import os
 
 st.set_page_config(page_title="BİST100 & Emtia Radarı V3", layout="wide")
 
-st.error("""
-**!PROJE TEST VE GELİŞTİRME AŞAMASINDADIR!** **!KESİNLİKLE GERÇEK PARAYLA KULLANILMASI ÖNERİLMEZ!** **!HİÇBİR YATIRIM TAVSİYESİ VE SORUMLULUK KABUL EDİLMEMEKTEDİR!**
-""")
-
 st.title("📈 Derin Öğrenme Fiyat Projeksiyonu V3 (BiLSTM + Huber)")
 st.markdown("""
 **Sistem Mimarisi (V3):** Çift Yönlü LSTM (Bidirectional) hücreleri ve Huber Şok Emici kayıp fonksiyonu ile donatılmış 4 Boyutlu (OHLCV, RSI, MACD) Yapay Zeka.
