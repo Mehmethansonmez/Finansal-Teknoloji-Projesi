@@ -10,9 +10,9 @@ import datetime
 import os
 import requests
 from bs4 import BeautifulSoup
-from textblob import TextBlob # Basit Duygu Analizi İçin
+from textblob import TextBlob
 
-st.set_page_config(page_title="BİST100 Fon Terminali (V4)", layout="wide")
+st.set_page_config(page_title="BİST100 Kuantum Fon Terminali", layout="wide")
 
 st.title("📈 Kuantum Fon Terminali V4 (Transformer + Sentiment)")
 st.markdown("""
@@ -20,9 +20,12 @@ st.markdown("""
 **📰 Alternatif Veri (Sentiment):** Kendi kurduğunuz portföyü anlık haber akışıyla stres testine sokabilirsiniz.
 """)
 
-# 1. Canlı Dolar Kurunu Çekme (Dönüşüm İçin)
+# 1. Canlı Dolar Kurunu Çekme (YFINANCE GÜNCELLEMESİNE UYUMLU)
 try:
     df_kur = yf.download("TRY=X", period="5d", interval="1d", progress=False)
+    if hasattr(df_kur.columns, 'levels'):
+        df_kur.columns = [col[0] for col in df_kur.columns]
+    
     kapanis_kur = df_kur['Close']
     if isinstance(kapanis_kur, pd.DataFrame):
         kapanis_kur = kapanis_kur.squeeze()
@@ -41,51 +44,42 @@ isim_haritasi = {
     "SI=F": "Gram Gümüş"
 }
 
-# --- HABER ÇEKME VE DUYGU ANALİZİ BOTU (WEB SCRAPER & NLP) ---
+# --- HABER ÇEKME VE DUYGU ANALİZİ BOTU (NLP) ---
 def haber_duygu_analizi(sirket_kodu):
-    # .IS uzantısını temizle (Örn: ASELS.IS -> ASELS)
     sirket_ismi = sirket_kodu.replace(".IS", "")
-    
-    # Gerçekte Bloomberg veya KAP API'si kullanılır, burada Google News arama botu simülasyonu yapıyoruz
     url = f"https://news.google.com/search?q={sirket_ismi}+hisse+borsa&hl=tr&gl=TR&ceid=TR:tr"
     
     try:
         headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(url, headers=headers, timeout=3)
+        response = requests.get(url, headers=headers, timeout=5)
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Manşetleri topla (h3 etiketleri Google News'te manşetleri temsil eder)
         mansetler = soup.find_all('h3')
         if not mansetler:
-            return 0.0 # Haber yoksa nötr
+            return 0.0 
             
         toplam_skor = 0
         sayac = 0
         
-        for man in mansetler[:5]: # Son 5 haberi oku
-            metin = man.text
-            # İngilizce tabanlı TextBlob Türkçe'de çok iyi çalışmaz ama temel kelimeleri (düştü, arttı, zarar) çevirerek yakalar
-            # Profesyonel kullanımda buraya HuggingFace Türkçe modeli gelir. Biz simüle ediyoruz:
-            # Temel pozitif/negatif kelime filtresi:
-            pozitifler = ['uçtu', 'arttı', 'yükseldi', 'kâr', 'anlaşma', 'ihale', 'büyüme', 'rekor']
-            negatifler = ['düştü', 'çöktü', 'zarar', 'iptal', 'ceza', 'dava', 'satış', 'uyarı']
-            
+        pozitifler = ['uçtu', 'arttı', 'yükseldi', 'kâr', 'anlaşma', 'ihale', 'büyüme', 'rekor', 'onay']
+        negatifler = ['düştü', 'çöktü', 'zarar', 'iptal', 'ceza', 'dava', 'satış', 'uyarı', 'kriz']
+        
+        for man in mansetler[:5]: 
+            metin = man.text.lower()
             haber_skoru = 0
-            metin_kucuk = metin.lower()
             for p in pozitifler:
-                if p in metin_kucuk: haber_skoru += 0.2
+                if p in metin: haber_skoru += 0.2
             for n in negatifler:
-                if n in metin_kucuk: haber_skoru -= 0.3 # Piyasada kötü haber daha sert fiyatlanır
+                if n in metin: haber_skoru -= 0.3 
                 
             toplam_skor += haber_skoru
             sayac += 1
             
         ortalama_skor = toplam_skor / sayac if sayac > 0 else 0
-        # Skoru -1 ile +1 arasına sıkıştır (Clip)
         return float(np.clip(ortalama_skor, -1.0, 1.0))
         
     except Exception:
-        return 0.0 # İnternet/API hatası durumunda nötr kal
+        return 0.0 
 
 
 if not ham_modeller:
@@ -100,7 +94,6 @@ else:
     kalanlar.sort() 
     hazir_modeller = bas_taraf + kalanlar 
 
-    # --- 4 SEKMELİ YENİ YAPI ---
     sekme1, sekme2, sekme3, sekme4 = st.tabs([
         "📊 Tüm Piyasa Radarı (V4)", 
         "🎯 Bireysel Analiz", 
@@ -117,11 +110,12 @@ else:
             durum_metni = st.empty()
             sonuclar = []
             
-            # V4 için BİST100 (Makro) verisini bir kere çekiyoruz
+            # V4 için BİST100 (Makro) verisini çek (ÇELİK YELEK EKLENDİ)
             df_makro_raw = yf.download("XU100.IS", period="1y", interval="1d", progress=False)
-            if isinstance(df_makro_raw.columns, pd.MultiIndex):
-                df_makro_raw.columns = df_makro_raw.columns.droplevel(1)
-            df_makro = pd.DataFrame(df_makro_raw['Close'])
+            if hasattr(df_makro_raw.columns, 'levels'):
+                df_makro_raw.columns = [col[0] for col in df_makro_raw.columns]
+                
+            df_makro = df_makro_raw[['Close']].copy()
             df_makro.columns = ['XU100_Close']
             
             for i, hisse in enumerate(hazir_modeller):
@@ -130,8 +124,10 @@ else:
                 
                 try:
                     df = yf.download(hisse, period="1y", interval="1d", progress=False)
-                    if isinstance(df.columns, pd.MultiIndex):
-                        df.columns = df.columns.droplevel(1)
+                    
+                    # ÇELİK YELEK EKLENDİ
+                    if hasattr(df.columns, 'levels'):
+                        df.columns = [col[0] for col in df.columns]
                         
                     df['Volume'] = df['Volume'].replace(0, np.nan).ffill().bfill()
                     
@@ -161,9 +157,8 @@ else:
                         scaled_X = scaler_X.fit_transform(features)
                         scaler_y.fit(target)
                         
-                        # Custom model olduğu için custom_objects gerekiyor
                         model_yolu = f'src/models/{hisse}_model.h5' 
-                        # Modelde kullandığımız custom katmanları tanıtıyoruz
+                        # Keras Transformer katmanları uyarı vermemesi için compile=False 
                         model = load_model(model_yolu, compile=False) 
 
                         son_75_X = scaled_X[-75:]
@@ -211,7 +206,7 @@ else:
                         total_getiri_yuzde = ((gunler[4] - suanki_fiyat_gosterim) / suanki_fiyat_gosterim) * 100
 
                         sonuclar.append({
-                            "Hisse_Kodu": hisse, # Haber analizi için lazım
+                            "Hisse_Kodu": hisse, 
                             "Varlık": gorsel_isim, 
                             "Mevcut Fiyat": round(suanki_fiyat_gosterim, 2),
                             "g1_f": gunler[0], "g1_y": yuzdeler[0],
@@ -229,15 +224,182 @@ else:
                 
                 progress_bar.progress((i + 1) / len(hazir_modeller))
             
-            durum_metni.success("✅ V4 Piyasa Taraması Tamamlandı!")
+            durum_metni.success("✅ V4 Piyasa Taraması Tamamlandı! Portföy sekmelerini kontrol edebilirsiniz.")
             
             if sonuclar:
                 df_sonuc = pd.DataFrame(sonuclar)
                 st.session_state['df_hafiza'] = df_sonuc
                 
-                # Tablo oluşturma işlemleri...
-                # (Sıralama ve çift sütun işlemleri klasik V3'teki gibi buraya eklenebilir, uzun olmasın diye atladım ana mantık çalışacak)
-                st.dataframe(df_sonuc.drop(columns=['Hisse_Kodu', 'Total_Getiri']))
+                csv_data = df_sonuc.drop(columns=['Hisse_Kodu', 'Total_Getiri']).to_csv(index=False).encode('utf-8-sig')
+                st.markdown("<br>", unsafe_allow_html=True)
+                st.download_button(
+                    label="📥 Tüm Sonuçları Excel Olarak İndir", data=csv_data,
+                    file_name=f"BIST100_V4_Radar_{datetime.date.today().strftime('%Y-%m-%d')}.csv",
+                    mime="text/csv"
+                )
+                st.markdown("---")
+
+                yari_nokta = len(df_sonuc) // 2 + (len(df_sonuc) % 2)
+                df_sol = df_sonuc.iloc[:yari_nokta]
+                df_sag = df_sonuc.iloc[yari_nokta:]
+                
+                sol_sutun, sag_sutun = st.columns(2)
+                
+                def tablo_olustur(df):
+                    md_tablo = "| Varlık | Mevcut (₺) | 1. Gün | 2. Gün | 3. Gün | 4. Gün | 5. Gün |\n"
+                    md_tablo += "|:---|:---:|:---:|:---:|:---:|:---:|:---:|\n"
+                    
+                    for _, row in df.iterrows():
+                        ok1 = "🟢" if row['g1_y'] > 0 else "🔴" if row['g1_y'] < 0 else "⚪"
+                        ok2 = "🟢" if row['g2_y'] > 0 else "🔴" if row['g2_y'] < 0 else "⚪"
+                        ok3 = "🟢" if row['g3_y'] > 0 else "🔴" if row['g3_y'] < 0 else "⚪"
+                        ok4 = "🟢" if row['g4_y'] > 0 else "🔴" if row['g4_y'] < 0 else "⚪"
+                        ok5 = "🟢" if row['g5_y'] > 0 else "🔴" if row['g5_y'] < 0 else "⚪"
+                        
+                        md_tablo += (
+                            f"| **{row['Varlık'][:10]}** "
+                            f"| {row['Mevcut Fiyat']:.2f} "
+                            f"| {ok1} %{row['g1_y']:.1f} ➔ {row['g1_f']:.1f} "
+                            f"| {ok2} %{row['g2_y']:.1f} ➔ {row['g2_f']:.1f} "
+                            f"| {ok3} %{row['g3_y']:.1f} ➔ {row['g3_f']:.1f} "
+                            f"| {ok4} %{row['g4_y']:.1f} ➔ {row['g4_f']:.1f} "
+                            f"| {ok5} %{row['g5_y']:.1f} ➔ {row['g5_f']:.1f} |\n"
+                        )
+                    return md_tablo
+
+                with sol_sutun: st.markdown(tablo_olustur(df_sol))
+                with sag_sutun: st.markdown(tablo_olustur(df_sag))
+
+    # ---------------- SEKME 2: BİREYSEL ANALİZ ----------------
+    with sekme2:
+        st.subheader("Tekil Varlık Projeksiyonu")
+        hisse_secim = st.selectbox("Grafik Analizi İçin Varlık Seçin:", hazir_modeller, format_func=lambda x: isim_haritasi.get(x, x))
+
+        if st.button("Analizi Çalıştır"):
+            gorsel_isim = isim_haritasi.get(hisse_secim, hisse_secim)
+            with st.spinner(f"{gorsel_isim} verileri çekiliyor ve V4 model ile analiz ediliyor..."):
+                try:
+                    df_makro_raw = yf.download("XU100.IS", period="1y", interval="1d", progress=False)
+                    if hasattr(df_makro_raw.columns, 'levels'):
+                        df_makro_raw.columns = [col[0] for col in df_makro_raw.columns]
+                    df_makro = df_makro_raw[['Close']].copy()
+                    df_makro.columns = ['XU100_Close']
+
+                    df = yf.download(hisse_secim, period="1y", interval="1d", progress=False)
+                    if hasattr(df.columns, 'levels'):
+                        df.columns = [col[0] for col in df.columns]
+                        
+                    df['Volume'] = df['Volume'].replace(0, np.nan).ffill().bfill()
+                    delta = df['Close'].diff()
+                    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+                    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+                    rs = gain / loss
+                    df['RSI'] = 100 - (100 / (1 + rs))
+                    
+                    exp1 = df['Close'].ewm(span=12, adjust=False).mean()
+                    exp2 = df['Close'].ewm(span=26, adjust=False).mean()
+                    df['MACD'] = exp1 - exp2
+                    
+                    df = df.join(df_makro, how='left')
+                    df['XU100_Close'] = df['XU100_Close'].ffill().bfill()
+                    df.dropna(inplace=True)
+
+                    features = df[['Close', 'Volume', 'RSI', 'MACD', 'XU100_Close']].values
+                    target = df[['Close']].values
+
+                    scaler_X = MinMaxScaler(feature_range=(0, 1))
+                    scaler_y = MinMaxScaler(feature_range=(0, 1))
+                    
+                    scaled_X = scaler_X.fit_transform(features)
+                    scaler_y.fit(target)
+                    
+                    model = load_model(f'src/models/{hisse_secim}_model.h5', compile=False)
+                    
+                    ortalama_hata = 0
+                    if len(df) >= 75:
+                        son_75_X = scaled_X[-75:]
+                        X_batch = np.array([son_75_X[j : j + 60] for j in range(15)])
+                        y_pred_batch = model.predict(X_batch, verbose=0)
+                        
+                        t_1g_olcekli = y_pred_batch[:, 0].reshape(-1, 1)
+                        t_1g_tl = scaler_y.inverse_transform(t_1g_olcekli).flatten()
+                        g_15g_tl = target[-15:].flatten()
+                        ortalama_hata = np.mean(t_1g_tl - g_15g_tl)
+
+                    son_60_X = scaled_X[-60:].reshape(1, 60, 5)
+                    tahmin_olcekli = model.predict(son_60_X, verbose=0)
+                    ham_tahmin_tl = scaler_y.inverse_transform(tahmin_olcekli.reshape(-1, 1)).flatten()
+                    
+                    kalibre_tahmin_tl = ham_tahmin_tl - ortalama_hata
+
+                    if hisse_secim in ["GC=F", "SI=F"]:
+                        carpan = dolar_kuru / 31.1034768
+                        kalibre_tahmin_tl = kalibre_tahmin_tl * carpan
+                        fiyatlar_gosterim = target * carpan
+                        ortalama_hata_gosterim = ortalama_hata * carpan
+                    else:
+                        fiyatlar_gosterim = target
+                        ortalama_hata_gosterim = ortalama_hata
+
+                    limitli_tahmin_tl = []
+                    taban_listesi = []
+                    tavan_listesi = []
+                    referans_fiyat = fiyatlar_gosterim[-1][0] 
+
+                    for ham in kalibre_tahmin_tl:
+                        tavan_fiyat = referans_fiyat * 1.10
+                        taban_fiyat = referans_fiyat * 0.90
+                        kesilmis_fiyat = float(np.clip(ham, taban_fiyat, tavan_fiyat))
+                        
+                        limitli_tahmin_tl.append(kesilmis_fiyat)
+                        taban_listesi.append(taban_fiyat)
+                        tavan_listesi.append(tavan_fiyat)
+                        referans_fiyat = kesilmis_fiyat 
+
+                    son_tarih = df.index[-1]
+                    tahmin_tarihleri = [son_tarih + datetime.timedelta(days=i) for i in range(1, 8)]
+
+                    st.markdown("---")
+                    sol_sutun_grafik, sag_sutun_grafik = st.columns([2, 3])
+
+                    with sol_sutun_grafik:
+                        fig, ax = plt.subplots(figsize=(7, 5))
+                        ax.plot(df.index[-30:], fiyatlar_gosterim[-30:], label='Son 30 Gün', marker='o', linewidth=2)
+                        ax.plot(tahmin_tarihleri, limitli_tahmin_tl, label='V4 Kalibre Tahmin', color='green', marker='x', linewidth=2)
+                        ax.set_title(f"{gorsel_isim} - Fiyat Projeksiyonu (₺)")
+                        ax.grid(True, alpha=0.3)
+                        ax.legend()
+                        st.pyplot(fig, use_container_width=True)
+
+                    with sag_sutun_grafik:
+                        st.markdown(f"**Son İşlem Günü Fiyatı:** {fiyatlar_gosterim[-1][0]:.2f} ₺ | **Model Sapma Payı:** {ortalama_hata_gosterim:.2f} ₺")
+                        
+                        md_tablo = "| Tarih | Yasal Taban (-10%) | Yasal Tavan (+10%) | 🤖 V4 Kalibre Tahmin |\n|:---|:---:|:---:|:---:|\n"
+                        for tarih, taban, tavan, fiyat in zip(tahmin_tarihleri, taban_listesi, tavan_listesi, limitli_tahmin_tl):
+                            md_tablo += f"| {tarih.strftime('%d.%m.%Y')} | {taban:.2f} ₺ | {tavan:.2f} ₺ | **{fiyat:.2f} ₺** |\n"
+                        st.markdown(md_tablo)
+                
+                except Exception as e:
+                    st.error(f"Sistem Hatası: {e}")
+
+    # ---------------- SEKME 3: MODEL PORTFÖY ----------------
+    with sekme3:
+        st.subheader("🏆 V4 Yapay Zeka Model Portföyü (Top 10)")
+        
+        if 'df_hafiza' not in st.session_state:
+            st.warning("👉 Lütfen önce 'Tüm Piyasa Radarı' sekmesine gidip piyasayı taratın.")
+        else:
+            df_hafiza = st.session_state['df_hafiza']
+            
+            st.markdown("V4 Transformer Motorunun 5. günün sonunda **en yüksek net getiri yüzdesini** beklediği ilk 10 varlık.")
+            df_top10 = df_hafiza.sort_values(by="Total_Getiri", ascending=False).head(10)
+            
+            st.bar_chart(data=df_top10.set_index('Varlık')['Total_Getiri'], use_container_width=True)
+            
+            md_portfoy = "| Sıra | Varlık Adı | Mevcut Fiyat | 5 Gün Sonra (Tahmin) | Beklenen Getiri |\n|:---:|:---|:---:|:---:|:---:|\n"
+            for index, (sira, row) in enumerate(df_top10.iterrows(), 1):
+                md_portfoy += f"| **{index}.** | **{row['Varlık']}** | {row['Mevcut Fiyat']:.2f} ₺ | {row['g5_f']:.2f} ₺ | 🟢 **%{row['Total_Getiri']:.2f}** |\n"
+            st.markdown(md_portfoy)
 
     # ---------------- SEKME 4: KENDİ PORTFÖYÜM & HABER ANALİZİ ----------------
     with sekme4:
@@ -248,10 +410,7 @@ else:
         else:
             df_hafiza = st.session_state['df_hafiza']
             
-            secilen_varliklar = st.multiselect(
-                "Portföyüne Eklemek İstediğin Varlıkları Seç:", 
-                df_hafiza['Varlık'].tolist()
-            )
+            secilen_varliklar = st.multiselect("Portföyüne Eklemek İstediğin Varlıkları Seç:", df_hafiza['Varlık'].tolist())
             
             if secilen_varliklar:
                 toplam_yatirim = 0
@@ -279,28 +438,22 @@ else:
                 if portfoy_detay:
                     st.markdown("---")
                     
-                    # 🌟 İŞTE CAN ALICI BUTON: HABER STRES TESTİ
                     if st.button("🚨 Portföyü Haber Stres Testine Sok (Duygu Analizi)"):
-                        st.info("🌐 Web Scraper çalışıyor... Bloomberg/Google News taranıyor...")
+                        st.info("🌐 Web Scraper çalışıyor... Haberler NLP motoruyla taranıyor...")
                         
                         portfoy_sonuclari = []
                         toplam_yeni_kasa = 0
                         
                         for kalem in portfoy_detay:
                             if kalem['Hisse_Kodu'] in ["GC=F", "SI=F", "XU100.IS"]:
-                                duygu_skoru = 0.0 # Emtia ve endeks için haber aramıyoruz
+                                duygu_skoru = 0.0 
                             else:
                                 duygu_skoru = haber_duygu_analizi(kalem['Hisse_Kodu'])
                                 
-                            # RİSK ÇARPANI MATEMATİĞİ
-                            # Haberler pozitifse hedefi bir miktar daha iyileştirir (+%x), negatifse düşürür.
-                            risk_carpanı = 1 + (duygu_skoru * 0.10) # Max %10 etki edebilir
+                            risk_carpanı = 1 + (duygu_skoru * 0.10) 
                             
-                            # Yeni Hedef Fiyat Hesabı
                             v4_fark = kalem['V4_Saf_Hedef'] - kalem['Mevcut_Fiyat']
                             yeni_fark = v4_fark * risk_carpanı
-                            
-                            # Eğer hisse düşecek deniyorsa ve haber de kötüyse (negatif x pozitif = düşüş derinleşir)
                             yeni_hedef_fiyat = kalem['Mevcut_Fiyat'] + yeni_fark
                             
                             adet = kalem['Yatırım'] / kalem['Mevcut_Fiyat']
@@ -316,11 +469,9 @@ else:
                                 "5. Gün Net Para": f"{gelecek_para:,.2f} ₺"
                             })
                             
-                        # SONUÇ TABLOSU
                         df_gosterim = pd.DataFrame(portfoy_sonuclari)
                         st.markdown("### 📊 Haber Etkileşimli Portföy Sonucu")
                         
                         toplam_net_kar = toplam_yeni_kasa - toplam_yatirim
                         st.success(f"**Toplam Yatırım:** {toplam_yatirim:,.2f} ₺  ➔  **Haber Analizli Beklenen Kasa:** {toplam_yeni_kasa:,.2f} ₺ (Net Kâr: {toplam_net_kar:+,.2f} ₺)")
-                        
                         st.dataframe(df_gosterim)
