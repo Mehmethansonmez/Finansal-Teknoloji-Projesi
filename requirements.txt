@@ -5,3 +5,12 @@ matplotlib
 yfinance
 tensorflow-cpu
 scikit-learn
+yfinance
+tensorflow
+scikit-learn
+pandas
+numpy
+matplotlib
+beautifulsoup4
+requests
+textblob
