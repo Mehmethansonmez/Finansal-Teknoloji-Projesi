@@ -11,33 +11,39 @@ import os
 import requests
 from bs4 import BeautifulSoup
 
-st.set_page_config(page_title="BİST100 Fon Terminali (V4)", layout="wide")
+st.set_page_config(page_title="BİST100 Fon Terminali V4", layout="wide")
 
-# (YFINANCE GÜNCELLEMESİNE KARŞI 100% GÜVENLİ VERİ ÇEKME MOTORU)
+# 📊 [YFINANCE GÜNCELLEMELERİNE KARŞI %100 ÇELİK ZIRH VERİ MOTORU]
 def guvenli_veri_cek(ticker, period="1y"):
-    df_raw = yf.download(ticker, period=period, interval="1d", progress=False)
-    if df_raw.empty:
+    try:
+        df_raw = yf.download(ticker, period=period, interval="1d", progress=False)
+        if df_raw.empty:
+            return pd.DataFrame()
+            
+        # Eğer yfinance veriyi iç içe geçmiş (MultiIndex) sütunla getirdiyse en üst seviyeyi al
+        if isinstance(df_raw.columns, pd.MultiIndex):
+            df_raw.columns = df_raw.columns.get_level_values(0)
+            
+        # 🌟 KRİTİK ÇÖZÜM: Zaman dilimi (Timezone) farklarını tamamen silip indeksi eşitliyoruz
+        df_raw.index = pd.to_datetime(df_raw.index).tz_localize(None)
+        
+        res = pd.DataFrame(index=df_raw.index)
+        
+        if 'Close' in df_raw.columns:
+            c_data = df_raw['Close']
+            res['Close'] = c_data.iloc[:, 0] if isinstance(c_data, pd.DataFrame) else c_data
+            
+        if 'Volume' in df_raw.columns:
+            v_data = df_raw['Volume']
+            res['Volume'] = v_data.iloc[:, 0] if isinstance(v_data, pd.DataFrame) else v_data
+            
+        return res
+    except Exception:
         return pd.DataFrame()
-        
-    close_s = None
-    vol_s = None
-    
-    # Kütüphane MultiIndex yaparsa da düz yaparsa da çalışacak garanti mantık
-    if isinstance(df_raw.columns, pd.MultiIndex):
-        for col in df_raw.columns:
-            if 'Close' in col:
-                close_s = df_raw[col]
-            elif 'Volume' in col:
-                vol_s = df_raw[col]
-    else:
-        close_s = df_raw.get('Close')
-        vol_s = df_raw.get('Volume')
-        
-    return pd.DataFrame({'Close': close_s, 'Volume': vol_s})
 
-st.title("📈 Kuantum Fon Terminali V4")
+st.title("📈 Kuantum Fon Terminali V4 (Transformer + Sentiment)")
 st.markdown("""
-**Sistem Mimarisi (V4):** Çift Yönlü LSTM, Huber Şok Emici ve **Multi-Head Attention** (Transformer) destekli 5 Boyutlu Yapay Zeka.
+**Sistem Mimarisi (V4):** Çift Yönlü LSTM, Huber Şok Emici ve **Multi-Head Attention** (Transformer) destekli 5 Boyutlu Yapay Zeka (XU100 Makro Entegrasyonu).
 **📰 Alternatif Veri (Sentiment):** Kendi kurduğunuz portföyü anlık haber akışıyla stres testine sokabilirsiniz.
 """)
 
@@ -59,7 +65,7 @@ isim_haritasi = {
     "SI=F": "Gram Gümüş"
 }
 
-# --- HABER ÇEKME VE DUYGU ANALİZİ BOTU (NLP) ---
+# --- HABER ÇEKME VE DUYGU ANALİZİ BOTU ---
 def haber_duygu_analizi(sirket_kodu):
     sirket_ismi = sirket_kodu.replace(".IS", "")
     url = f"https://news.google.com/search?q={sirket_ismi}+hisse+borsa&hl=tr&gl=TR&ceid=TR:tr"
@@ -92,7 +98,6 @@ def haber_duygu_analizi(sirket_kodu):
             
         ortalama_skor = toplam_skor / sayac if sayac > 0 else 0
         return float(np.clip(ortalama_skor, -1.0, 1.0))
-        
     except Exception:
         return 0.0 
 
@@ -124,7 +129,7 @@ else:
             durum_metni = st.empty()
             sonuclar = []
             
-            # V4 için BİST100 (Makro) verisini çek (ÇELİK YELEK YÖNTEMİ)
+            # Makro XU100 verisini çekiyoruz ve indeksini düzeltiyoruz
             df_makro = guvenli_veri_cek("XU100.IS", period="1y")
             makro_serisi = df_makro['Close'] if not df_makro.empty else None
             
@@ -149,7 +154,7 @@ else:
                     exp2 = df['Close'].ewm(span=26, adjust=False).mean()
                     df['MACD'] = exp1 - exp2
                     
-                    # Makro veriyi DİREKT SERİ OLARAK ATA (Asla Patlamaz)
+                    # 🌟 ASLA PATLAMAYAN DIRET ATAMA (Timezone uyuşmazlığı giderildi)
                     df['XU100_Close'] = makro_serisi
                     df['XU100_Close'] = df['XU100_Close'].ffill().bfill()
                     
@@ -222,37 +227,31 @@ else:
                             "g5_f": gunler[4], "g5_y": yuzdeler[4],
                             "Total_Getiri": total_getiri_yuzde
                         })
-                        
                         tf.keras.backend.clear_session()
-                
-                except Exception as e:
+                except Exception:
                     pass 
                 
                 progress_bar.progress((i + 1) / len(hazir_modeller))
             
-            durum_metni.success("✅ V4 Piyasa Taraması Tamamlandı! Portföy sekmelerini kontrol edebilirsiniz.")
-            
             if sonuclar:
                 df_sonuc = pd.DataFrame(sonuclar)
                 st.session_state['df_hafiza'] = df_sonuc
+                durum_metni.success("✅ V4 Piyasa Taraması Tamamlandı! Tablolar aktif hale getirildi.")
                 
                 csv_data = df_sonuc.drop(columns=['Hisse_Kodu', 'Total_Getiri']).to_csv(index=False).encode('utf-8-sig')
-                st.markdown("<br>", unsafe_allow_html=True)
                 st.download_button(
                     label="📥 Tüm Sonuçları Excel Olarak İndir", data=csv_data,
-                    file_name=f"BIST100_V4_Radar_{datetime.date.today().strftime('%Y-%m-%d')}.csv",
-                    mime="text/csv"
+                    file_name=f"BIST100_V4_Radar_{datetime.date.today().strftime('%Y-%m-%d')}.csv", mime="text/csv"
                 )
-                st.markdown("---")
 
                 yari_nokta = len(df_sonuc) // 2 + (len(df_sonuc) % 2)
                 df_sol = df_sonuc.iloc[:yari_nokta]
                 df_sag = df_sonuc.iloc[yari_nokta:]
                 
-                def tablo_olustur(df):
+                def tablo_olustur(df_target):
                     md_tablo = "| Varlık | Mevcut (₺) | 1. Gün | 2. Gün | 3. Gün | 4. Gün | 5. Gün |\n"
                     md_tablo += "|:---|:---:|:---:|:---:|:---:|:---:|:---:|\n"
-                    for _, row in df.iterrows():
+                    for _, row in df_target.iterrows():
                         ok1 = "🟢" if row['g1_y'] > 0 else "🔴" if row['g1_y'] < 0 else "⚪"
                         ok2 = "🟢" if row['g2_y'] > 0 else "🔴" if row['g2_y'] < 0 else "⚪"
                         ok3 = "🟢" if row['g3_y'] > 0 else "🔴" if row['g3_y'] < 0 else "⚪"
@@ -269,6 +268,8 @@ else:
                 sol_sutun, sag_sutun = st.columns(2)
                 with sol_sutun: st.markdown(tablo_olustur(df_sol))
                 with sag_sutun: st.markdown(tablo_olustur(df_sag))
+            else:
+                durum_metni.error("❌ Tarama yapıldı fakat eşleşen veri üretilemedi. Model isimlerini kontrol edin.")
 
     # ---------------- SEKME 2: BİREYSEL ANALİZ ----------------
     with sekme2:
@@ -277,14 +278,14 @@ else:
 
         if st.button("Analizi Çalıştır"):
             gorsel_isim = isim_haritasi.get(hisse_secim, hisse_secim)
-            with st.spinner(f"{gorsel_isim} verileri çekiliyor ve V4 model ile analiz ediliyor..."):
+            with st.spinner(f"{gorsel_isim} verileri V4 model ile analiz ediliyor..."):
                 try:
                     df_makro = guvenli_veri_cek("XU100.IS", period="1y")
                     makro_serisi = df_makro['Close'] if not df_makro.empty else None
 
                     df = guvenli_veri_cek(hisse_secim, period="1y")
                     if df.empty or makro_serisi is None:
-                        st.error("Veri çekilemedi, lütfen tekrar deneyin.")
+                        st.error("Veri kaynaklarına şu an erişilemiyor.")
                     else:
                         df['Volume'] = df['Volume'].replace(0, np.nan).ffill().bfill()
                         delta = df['Close'].diff()
@@ -317,7 +318,6 @@ else:
                             son_75_X = scaled_X[-75:]
                             X_batch = np.array([son_75_X[j : j + 60] for j in range(15)])
                             y_pred_batch = model.predict(X_batch, verbose=0)
-                            
                             t_1g_tl = scaler_y.inverse_transform(y_pred_batch[:, 0].reshape(-1, 1)).flatten()
                             g_15g_tl = target[-15:].flatten()
                             ortalama_hata = np.mean(t_1g_tl - g_15g_tl)
@@ -371,7 +371,6 @@ else:
                             for tarih, taban, tavan, fiyat in zip(tahmin_tarihleri, taban_listesi, tavan_listesi, limitli_tahmin_tl):
                                 md_tablo += f"| {tarih.strftime('%d.%m.%Y')} | {taban:.2f} ₺ | {tavan:.2f} ₺ | **{fiyat:.2f} ₺** |\n"
                             st.markdown(md_tablo)
-                
                 except Exception as e:
                     st.error(f"Sistem Hatası: {e}")
 
@@ -380,16 +379,14 @@ else:
         st.subheader("🏆 V4 Yapay Zeka Model Portföyü (Top 10)")
         
         if 'df_hafiza' not in st.session_state:
-            st.warning("👉 Lütfen önce 'Tüm Piyasa Radarı' sekmesine gidip piyasayı taratın.")
+            st.warning("👉 Lütfen önce 'Tüm Piyasa Radarı (V4)' sekmesine gidip piyasayı taratın.")
         else:
             df_hafiza = st.session_state['df_hafiza']
-            
-            st.markdown("V4 Transformer Motorunun 5. günün sonunda **en yüksek net getiri yüzdesini** beklediği ilk 10 varlık.")
             df_top10 = df_hafiza.sort_values(by="Total_Getiri", ascending=False).head(10)
             
             st.bar_chart(data=df_top10.set_index('Varlık')['Total_Getiri'], use_container_width=True)
             
-            md_portfoy = "| Sıra | Varlık Adı | Mevcut Fiyat | 5 Gün Sonra (Tahmin) | Beklenen Getiri |\n|:---:|:---|:---:|:---:|:---:|\n"
+            md_portfoy = "| Sıra | Varlık Adı | Mevcut Fiyat | 5 Gün Sonra (Tahmin) | Getiri Oranı |\n|:---:|:---|:---:|:---:|:---:|\n"
             for index, (sira, row) in enumerate(df_top10.iterrows(), 1):
                 md_portfoy += f"| **{index}.** | **{row['Varlık']}** | {row['Mevcut Fiyat']:.2f} ₺ | {row['g5_f']:.2f} ₺ | 🟢 **%{row['Total_Getiri']:.2f}** |\n"
             st.markdown(md_portfoy)
@@ -399,40 +396,32 @@ else:
         st.subheader("💼 Portföy Risk Radarı (Haber + Yapay Zeka)")
         
         if 'df_hafiza' not in st.session_state:
-            st.warning("👉 Lütfen önce 'Tüm Piyasa Radarı' sekmesine gidip piyasayı taratın.")
+            st.warning("👉 Lütfen önce 'Tüm Piyasa Radarı (V4)' sekmesine gidip piyasayı taratın.")
         else:
             df_hafiza = st.session_state['df_hafiza']
-            
-            secilen_varliklar = st.multiselect("Portföyüne Eklemek İstediğin Varlıkları Seç:", df_hafiza['Varlık'].tolist())
+            secilen_varliklar = st.multiselect("Portföyünüze Varlık Ekleyin:", df_hafiza['Varlık'].tolist())
             
             if secilen_varliklar:
                 toplam_yatirim = 0
                 portfoy_detay = []
                 
-                st.markdown("Her varlık için yatırım miktarını belirle:")
                 col1, col2 = st.columns(2)
-                
                 for i, varlik in enumerate(secilen_varliklar):
                     with col1 if i % 2 == 0 else col2:
-                        miktar = st.number_input(f"{varlik} (₺):", min_value=0.0, value=1000.0, step=500.0, key=f"inp_{varlik}")
+                        miktar = st.number_input(f"{varlik} Yatırım Tutarı (₺):", min_value=0.0, value=1000.0, step=500.0, key=f"inp_{varlik}")
                         if miktar > 0:
                             toplam_yatirim += miktar
-                            
                             satir = df_hafiza[df_hafiza['Varlık'] == varlik].iloc[0]
                             portfoy_detay.append({
-                                "Varlık": varlik,
-                                "Hisse_Kodu": satir['Hisse_Kodu'],
-                                "Yatırım": miktar,
-                                "Mevcut_Fiyat": satir['Mevcut Fiyat'],
-                                "V4_Saf_Hedef": satir['g5_f'],
-                                "V4_Saf_Getiri_Yuzde": satir['Total_Getiri']
+                                "Varlık": varlik, "Hisse_Kodu": satir['Hisse_Kodu'],
+                                "Yatırım": miktar, "Mevcut_Fiyat": satir['Mevcut Fiyat'],
+                                "V4_Saf_Hedef": satir['g5_f'], "V4_Saf_Getiri_Yuzde": satir['Total_Getiri']
                             })
                 
                 if portfoy_detay:
                     st.markdown("---")
-                    
-                    if st.button("🚨 Portföyü Haber Stres Testine Sok (Duygu Analizi)"):
-                        st.info("🌐 Web Scraper çalışıyor... Haberler NLP motoruyla taranıyor...")
+                    if st.button("🚨 Portföyü Haber Stres Testine Sok"):
+                        st.info("🌐 Haberler NLP motoruyla taranıp duygu skorlaması yapılıyor...")
                         
                         portfoy_sonuclari = []
                         toplam_yeni_kasa = 0
@@ -444,27 +433,22 @@ else:
                                 duygu_skoru = haber_duygu_analizi(kalem['Hisse_Kodu'])
                                 
                             risk_carpanı = 1 + (duygu_skoru * 0.10) 
-                            
                             v4_fark = kalem['V4_Saf_Hedef'] - kalem['Mevcut_Fiyat']
                             yeni_fark = v4_fark * risk_carpanı
                             yeni_hedef_fiyat = kalem['Mevcut_Fiyat'] + yeni_fark
                             
                             adet = kalem['Yatırım'] / kalem['Mevcut_Fiyat']
-                            gelecek_para = adet * yeni_hedef_fiyat
+                            gelecek_para = float(adet * yeni_hedef_fiyat)
                             toplam_yeni_kasa += gelecek_para
                             
                             portfoy_sonuclari.append({
-                                "Varlık": kalem['Varlık'],
-                                "Yatırılan": f"{kalem['Yatırım']:,.2f} ₺",
-                                "Saf V4 Hedefi": f"%{kalem['V4_Saf_Getiri_Yuzde']:.2f}",
-                                "Medya Skoru": f"{duygu_skoru:.2f}",
+                                "Varlık": kalem['Varlık'], "Yatırılan": f"{kalem['Yatırım']:,.2f} ₺",
+                                "Saf V4 Hedefi": f"%{kalem['V4_Saf_Getiri_Yuzde']:.2f}", "Medya Skoru": f"{duygu_skoru:.2f}",
                                 "Yeni Haberli Hedef": f"%{((yeni_hedef_fiyat - kalem['Mevcut_Fiyat'])/kalem['Mevcut_Fiyat'])*100:.2f}",
-                                "5. Gün Net Para": f"{gelecek_para:,.2f} ₺"
+                                "5. Gün Sonucu": f"{gelecek_para:,.2f} ₺"
                             })
                             
                         df_gosterim = pd.DataFrame(portfoy_sonuclari)
-                        st.markdown("### 📊 Haber Etkileşimli Portföy Sonucu")
-                        
-                        toplam_net_kar = toplam_yeni_kasa - toplam_yatirim
-                        st.success(f"**Toplam Yatırım:** {toplam_yatirim:,.2f} ₺  ➔  **Haber Analizli Beklenen Kasa:** {toplam_yeni_kasa:,.2f} ₺ (Net Kâr: {toplam_net_kar:+,.2f} ₺)")
+                        st.markdown("### 📊 Haber Duyarlılık Analizi Sonuçları")
+                        st.success(f"**Toplam Portföy Değeri:** {toplam_yatirim:,.2f} ₺  ➔  **Beklenen Gelecek Kasa:** {toplam_yeni_kasa:,.2f} ₺")
                         st.dataframe(df_gosterim)
