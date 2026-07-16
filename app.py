@@ -12,9 +12,9 @@ import requests
 from bs4 import BeautifulSoup
 from textblob import TextBlob # Basit Duygu Analizi İçin
 
-st.set_page_config(page_title="Fon Terminali (V4)", layout="wide")
+st.set_page_config(page_title="BİST100 Fon Terminali (V4)", layout="wide")
 
-st.title("📈 Kuantum Fon Terminali V4")
+st.title("📈 Kuantum Fon Terminali V4 (Transformer + Sentiment)")
 st.markdown("""
 **Sistem Mimarisi (V4):** Çift Yönlü LSTM, Huber Şok Emici ve **Multi-Head Attention** (Transformer) destekli 5 Boyutlu Yapay Zeka (XU100 Makro Entegrasyonu).
 **📰 Alternatif Veri (Sentiment):** Kendi kurduğunuz portföyü anlık haber akışıyla stres testine sokabilirsiniz.
